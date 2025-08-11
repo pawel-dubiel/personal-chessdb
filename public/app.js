@@ -10,6 +10,10 @@ let currentSearchParams = {};
 let stockfish = null;
 let analysisMode = false;
 let currentBestMove = null;
+let guessMode = false;
+let lastPosition = null;
+let bestMoveAtPosition = null;
+let evaluationAtPosition = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     loadStats();
@@ -33,7 +37,44 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
     setupPagination();
     setupStockfish();
+    
+    // Add guess mode toggle
+    document.getElementById('toggleGuessMode').addEventListener('click', toggleGuessMode);
+    
+    // Add keyboard support for navigation
+    document.addEventListener('keydown', handleKeyDown);
 });
+
+function handleKeyDown(event) {
+    // Only handle keys when game viewer is open and not typing in input fields
+    if (!currentGame || event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+        return;
+    }
+    
+    switch(event.key) {
+        case 'ArrowLeft':
+            event.preventDefault();
+            navigateMove(currentMoveIndex - 1);
+            break;
+        case 'ArrowRight':
+            event.preventDefault();
+            navigateMove(currentMoveIndex + 1);
+            break;
+        case 'Home':
+            event.preventDefault();
+            navigateMove(-1);
+            break;
+        case 'End':
+            event.preventDefault();
+            navigateMove(moveHistory.length - 1);
+            break;
+        case ' ':
+        case 'Space':
+            event.preventDefault();
+            toggleAutoPlay();
+            break;
+    }
+}
 
 async function loadStats() {
     try {
