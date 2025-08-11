@@ -238,7 +238,9 @@ function closeGameViewer() {
 function initializeBoard() {
     const config = {
         position: 'start',
-        draggable: false,
+        draggable: true,
+        onDrop: onPieceDrop,
+        onDragStart: onDragStart,
         // Use local chess piece images
         pieceTheme: './img/chesspieces/{piece}.png',
         moveSpeed: 200,
@@ -254,6 +256,253 @@ function initializeBoard() {
     
     board = Chessboard('board', config);
     game = new Chess();
+}
+
+function onDragStart(source, piece, position, orientation) {
+    // Only allow dragging if guess mode is on
+    if (!guessMode) {
+        return false;
+    }
+    
+    // Only allow dragging pieces of the side to move
+    if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+        (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+        return false;
+    }
+    
+    return true;
+}
+
+function toggleGuessMode() {
+    guessMode = !guessMode;
+    const button = document.getElementById('toggleGuessMode');
+    button.textContent = guessMode ? '🎯 Guess Mode: ON' : '🎯 Guess Mode: OFF';
+    button.className = guessMode ? 'btn btn-primary' : 'btn btn-secondary';
+    
+    if (guessMode) {
+        // Hide move feedback initially
+        document.getElementById('moveFeedback').style.display = 'none';
+        // Always hide analysis info in guess mode
+        forceHideAnalysisInfo();
+        // Start background analysis if needed
+        if (!analysisMode) {
+            startBackgroundAnalysis();
+        }
+    } else {
+        // Hide feedback
+        document.getElementById('moveFeedback').style.display = 'none';
+        // Show analysis info when guess mode is off
+        forceShowAnalysisInfo();
+    }
+}
+
+function forceHideAnalysisInfo() {
+    // Always hide analysis panel in guess mode
+    const analysisInfo = document.getElementById('analysisInfo');
+    if (analysisInfo) {
+        analysisInfo.style.display = 'none';
+    }
+    
+    // Also update the analysis button to show it's hidden
+    const toggleBtn = document.getElementById('toggleAnalysis');
+    if (toggleBtn && analysisMode) {
+        toggleBtn.innerHTML = '🔍 Analysis (Hidden in Guess Mode)';
+        toggleBtn.disabled = true;
+    }
+}
+
+function forceShowAnalysisInfo() {
+    // Show analysis panel when not in guess mode
+    const analysisInfo = document.getElementById('analysisInfo');
+    if (analysisInfo && analysisMode) {
+        analysisInfo.style.display = 'block';
+    }
+    
+    // Restore the analysis button
+    const toggleBtn = document.getElementById('toggleAnalysis');
+    if (toggleBtn) {
+        toggleBtn.innerHTML = analysisMode ? '🔍 Stop Analysis' : '🔍 Start Analysis';
+        toggleBtn.disabled = false;
+    }
+}
+
+function startBackgroundAnalysis() {
+    // Start analysis but keep UI hidden
+    if (!analysisMode) {
+        toggleAnalysis();
+        // Immediately hide the UI after starting
+        forceHideAnalysisInfo();
+    }
+}
+
+function onPieceDrop(source, target, piece, newPos, oldPos, orientation) {
+    // Prevent the move if not in guess mode
+    if (!guessMode) {
+        return 'snapback';
+    }
+    
+    // Test the move without permanently making it
+    const moveObj = {
+        from: source,
+        to: target,
+        promotion: 'q' // Always promote to queen for simplicity
+    };
+    
+    // Create a temporary game to test the move
+    const tempGame = new Chess(game.fen());
+    const testMove = tempGame.move(moveObj);
+    
+    if (testMove === null) {
+        return 'snapback';
+    }
+    
+    // Evaluate the move
+    evaluatePlayerMove(testMove);
+    
+    // Always snapback - we're just evaluating, not actually making the move
+    return 'snapback';
+}
+
+function evaluatePlayerMove(playerMove) {
+    if (!bestMoveAtPosition || !evaluationAtPosition) {
+        showMoveFeedback('⏳ Evaluating...', 'Please wait while the engine analyzes your move.', 'neutral');
+        // Store the move to evaluate later when we have the best move
+        setTimeout(() => {
+            if (bestMoveAtPosition) {
+                evaluatePlayerMove(playerMove);
+            }
+        }, 1000);
+        return;
+    }
+    
+    const playerMoveUci = playerMove.from + playerMove.to + (playerMove.promotion || '');
+    const bestMoveUci = bestMoveAtPosition;
+    
+    console.log(`Comparing player move ${playerMoveUci} to best move ${bestMoveUci}`);
+    
+    // If player move matches best move
+    if (playerMoveUci === bestMoveUci) {
+        showMoveFeedback(
+            '🎉 Excellent!', 
+            'You found the best move!', 
+            'excellent'
+        );
+        return;
+    }
+    
+    // Evaluate the player's move by temporarily making it and getting evaluation
+    evaluateAlternativeMove(playerMoveUci, (playerEval) => {
+        if (playerEval === null) {
+            showMoveFeedback(
+                '❌ Illegal Move', 
+                'This move is not legal in the current position.', 
+                'poor'
+            );
+            return;
+        }
+        
+        const bestEval = evaluationAtPosition;
+        const evalDiff = Math.abs(playerEval - bestEval);
+        
+        console.log(`Best eval: ${bestEval}, Player eval: ${playerEval}, Diff: ${evalDiff}`);
+        
+        if (evalDiff <= 0.1) {
+            showMoveFeedback(
+                '✅ Excellent!', 
+                `Your move is just as good as the engine's choice! Best move was: ${formatMove(bestMoveUci)} (Eval: ${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)})`, 
+                'excellent'
+            );
+        } else if (evalDiff <= 0.5) {
+            showMoveFeedback(
+                '👍 Good move!', 
+                `Very close to optimal! Best: ${formatMove(bestMoveUci)} (${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)}), Your move: ${playerEval > 0 ? '+' : ''}${playerEval.toFixed(2)}`, 
+                'good'
+            );
+        } else if (evalDiff <= 1.0) {
+            showMoveFeedback(
+                '👌 OK move', 
+                `Decent, but there's better. Best: ${formatMove(bestMoveUci)} (${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)}), Your move: ${playerEval > 0 ? '+' : ''}${playerEval.toFixed(2)}`, 
+                'ok'
+            );
+        } else {
+            showMoveFeedback(
+                '⚠️ Poor move', 
+                `This loses advantage. Best: ${formatMove(bestMoveUci)} (${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)}), Your move: ${playerEval > 0 ? '+' : ''}${playerEval.toFixed(2)}`, 
+                'poor'
+            );
+        }
+    });
+}
+
+function evaluateAlternativeMove(moveUci, callback) {
+    if (!stockfish) {
+        callback(null);
+        return;
+    }
+    
+    // Create a temporary position after the player's move
+    const tempGame = new Chess(game.fen());
+    
+    // Try to make the player's move
+    const from = moveUci.substring(0, 2);
+    const to = moveUci.substring(2, 4);
+    const promotion = moveUci.length > 4 ? moveUci.substring(4, 5) : undefined;
+    
+    const move = tempGame.move({ from, to, promotion });
+    if (!move) {
+        callback(null);
+        return;
+    }
+    
+    // Quick analysis of this position
+    const tempFen = tempGame.fen();
+    stockfish.postMessage('stop');
+    stockfish.postMessage(`position fen ${tempFen}`);
+    stockfish.postMessage('go depth 15 movetime 2000');
+    
+    // Listen for evaluation (temporary listener)
+    let tempEvaluation = null;
+    const tempHandler = function(event) {
+        const message = event.data || event;
+        if (typeof message === 'string' && message.includes('score cp')) {
+            const parts = message.split(' ');
+            for (let i = 0; i < parts.length; i++) {
+                if (parts[i] === 'score' && parts[i + 1] === 'cp') {
+                    tempEvaluation = parseInt(parts[i + 2]) / 100;
+                    // Adjust for black to move
+                    if (tempGame.turn() === 'b') {
+                        tempEvaluation = -tempEvaluation;
+                    }
+                    break;
+                }
+            }
+        } else if (typeof message === 'string' && message.startsWith('bestmove')) {
+            // Remove this temporary listener
+            stockfish.onmessage = originalStockfishHandler;
+            callback(tempEvaluation);
+        }
+    };
+    
+    // Store original handler and use temp one
+    const originalStockfishHandler = stockfish.onmessage;
+    stockfish.onmessage = tempHandler;
+}
+
+function showMoveFeedback(title, details, type) {
+    const feedbackDiv = document.getElementById('moveFeedback');
+    const messageDiv = document.getElementById('feedbackMessage');
+    const detailsDiv = document.getElementById('feedbackDetails');
+    
+    messageDiv.textContent = title;
+    messageDiv.className = `feedback-message ${type}`;
+    detailsDiv.textContent = details;
+    
+    feedbackDiv.style.display = 'block';
+    
+    // Auto-hide after 8 seconds
+    setTimeout(() => {
+        feedbackDiv.style.display = 'none';
+    }, 8000);
 }
 
 function loadGameMoves() {
