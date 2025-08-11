@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Database</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Chess Database</h1>
+            <div class="stats" id="stats">
+                <span>Total Games: <strong id="totalGames">0</strong></span>
+                <span>Players: <strong id="totalPlayers">0</strong></span>
+                <span>Events: <strong id="totalEvents">0</strong></span>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <aside class="sidebar">
+                <div class="section">
+                    <h2>Import PGN</h2>
+                    <div class="import-options">
+                        <div class="tab-buttons">
+                            <button class="tab-btn active" data-tab="paste">Paste PGN</button>
+                            <button class="tab-btn" data-tab="upload">Upload File</button>
+                        </div>
+                        <div class="tab-content">
+                            <div id="pasteTab" class="tab-pane active">
+                                <textarea id="pgnInput" placeholder="Paste PGN text here..." rows="8"></textarea>
+                                <button id="importBtn" class="btn btn-primary">Import Games</button>
+                            </div>
+                            <div id="uploadTab" class="tab-pane">
+                                <div class="file-upload-area">
+                                    <input type="file" id="fileInput" accept=".pgn,.zip" style="display: none;">
+                                    <div class="upload-prompt" id="uploadPrompt">
+                                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="17 8 12 3 7 8"></polyline>
+                                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                                        </svg>
+                                        <p>Click to select a PGN or ZIP file or drag & drop here</p>
+                                        <span class="file-info">Supports: .pgn and .zip files (Max: 100MB)</span>
+                                    </div>
+                                    <div class="file-selected" id="fileSelected" style="display: none;">
+                                        <span id="fileName"></span>
+                                        <button class="btn btn-small" id="clearFile">Clear</button>
+                                    </div>
+                                </div>
+                                <button id="uploadBtn" class="btn btn-primary" disabled>Import File</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="importResult" class="result-message"></div>
+                    <div id="importProgress" class="progress-bar" style="display: none;">
+                        <div class="progress-fill"></div>
+                        <span class="progress-text">Importing...</span>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Search Games</h2>
+                    <form id="searchForm">
+                        <input type="text" id="whitePlayer" placeholder="White player">
+                        <input type="text" id="blackPlayer" placeholder="Black player">
+                        <input type="text" id="opening" placeholder="Opening">
+                        <input type="text" id="eco" placeholder="ECO Code">
+                        <select id="result">
+                            <option value="">Any Result</option>
+                            <option value="1-0">White wins</option>
+                            <option value="0-1">Black wins</option>
+                            <option value="1/2-1/2">Draw</option>
+                        </select>
+                        <input type="date" id="dateFrom" placeholder="Date from">
+                        <input type="date" id="dateTo" placeholder="Date to">
+                        <button type="submit" class="btn btn-secondary">Search</button>
+                    </form>
+                </div>
+            </aside>
+
+            <main class="content">
+                <div class="games-list">
+                    <h2>Games</h2>
+                    <div id="gamesContainer">
+                        <table id="gamesTable">
+                            <thead>
+                                <tr>
+                                    <th>White</th>
+                                    <th>Black</th>
+                                    <th>Result</th>
+                                    <th>Date</th>
+                                    <th>Event</th>
+                                    <th>ECO</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="gamesTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="gameViewer" class="game-viewer" style="display: none;">
+                    <div class="viewer-header">
+                        <h3 id="gameTitle">Game Viewer</h3>
+                        <button id="closeViewer" class="btn btn-small">Close</button>
+                    </div>
+                    <div class="viewer-content">
+                        <div id="board" class="chess-board"></div>
+                        <div class="game-controls">
+                            <div class="game-info">
+                                <div id="gameDetails"></div>
+                                <div id="moveList" class="move-list"></div>
+                            </div>
+                            <div class="control-buttons">
+                                <button id="startBtn" class="btn btn-small">⏮</button>
+                                <button id="prevBtn" class="btn btn-small">◀</button>
+                                <button id="playBtn" class="btn btn-small">▶</button>
+                                <button id="nextBtn" class="btn btn-small">▶</button>
+                                <button id="endBtn" class="btn btn-small">⏭</button>
+                            </div>
+                            <div id="currentMove" class="current-move"></div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
