@@ -82,11 +82,36 @@
 
             <main class="content">
                 <div class="games-list">
-                    <h2>Games</h2>
+                    <div class="games-header">
+                        <h2>Games</h2>
+                        <div class="page-size-selector">
+                            <label>Show:</label>
+                            <select id="pageSize">
+                                <option value="25">25</option>
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                            </select>
+                            <span>per page</span>
+                        </div>
+                    </div>
+                    <div class="pagination" id="paginationTop">
+                        <div class="pagination-info">
+                            <span id="paginationInfoTop"></span>
+                        </div>
+                        <div class="pagination-controls">
+                            <button id="firstPageTop" class="btn btn-small">First</button>
+                            <button id="prevPageTop" class="btn btn-small">Previous</button>
+                            <div id="pageNumbersTop" class="page-numbers"></div>
+                            <button id="nextPageTop" class="btn btn-small">Next</button>
+                            <button id="lastPageTop" class="btn btn-small">Last</button>
+                        </div>
+                    </div>
                     <div id="gamesContainer">
                         <table id="gamesTable">
                             <thead>
                                 <tr>
+                                    <th>ID</th>
                                     <th>White</th>
                                     <th>Black</th>
                                     <th>Result</th>
@@ -99,6 +124,18 @@
                             <tbody id="gamesTableBody">
                             </tbody>
                         </table>
+                    </div>
+                    <div class="pagination" id="paginationBottom">
+                        <div class="pagination-info">
+                            <span id="paginationInfoBottom"></span>
+                        </div>
+                        <div class="pagination-controls">
+                            <button id="firstPageBottom" class="btn btn-small">First</button>
+                            <button id="prevPageBottom" class="btn btn-small">Previous</button>
+                            <div id="pageNumbersBottom" class="page-numbers"></div>
+                            <button id="nextPageBottom" class="btn btn-small">Next</button>
+                            <button id="lastPageBottom" class="btn btn-small">Last</button>
+                        </div>
                     </div>
                 </div>
 
