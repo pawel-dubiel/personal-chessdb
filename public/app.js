@@ -4,6 +4,9 @@ let game = null;
 let moveHistory = [];
 let currentMoveIndex = -1;
 let autoPlay = false;
+let currentPage = 1;
+let currentPageSize = 50;
+let currentSearchParams = {};
 
 document.addEventListener('DOMContentLoaded', () => {
     loadStats();
@@ -75,8 +78,9 @@ async function importPGN() {
     }
 }
 
-async function searchGames() {
-    const params = new URLSearchParams({
+async function searchGames(page = 1) {
+    currentPage = page;
+    currentSearchParams = {
         white: document.getElementById('whitePlayer').value,
         black: document.getElementById('blackPlayer').value,
         opening: document.getElementById('opening').value,
@@ -84,33 +88,39 @@ async function searchGames() {
         result: document.getElementById('result').value,
         dateFrom: document.getElementById('dateFrom').value,
         dateTo: document.getElementById('dateTo').value,
-        limit: 100
-    });
+        page: currentPage,
+        pageSize: currentPageSize
+    };
+    
+    const params = new URLSearchParams(currentSearchParams);
     
     try {
         const response = await fetch(`/api/games/search?${params}`);
         const data = await response.json();
         
         if (data.success) {
-            displayGames(data.games);
+            displayGames(data.games, data.pagination);
         }
     } catch (error) {
         console.error('Error searching games:', error);
     }
 }
 
-function displayGames(games) {
+function displayGames(games, pagination) {
     const tbody = document.getElementById('gamesTableBody');
     tbody.innerHTML = '';
     
     if (games.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">No games found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">No games found</td></tr>';
+        document.getElementById('paginationTop').style.display = 'none';
+        document.getElementById('paginationBottom').style.display = 'none';
         return;
     }
     
     games.forEach(game => {
         const row = document.createElement('tr');
         row.innerHTML = `
+            <td>${game.id}</td>
             <td>${game.white}</td>
             <td>${game.black}</td>
             <td>${game.result}</td>
