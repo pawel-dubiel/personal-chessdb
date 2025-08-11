@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     setupFileUpload();
     setupTabs();
+    setupPagination();
 });
 
 async function loadStats() {
@@ -134,6 +135,12 @@ function displayGames(games, pagination) {
         `;
         tbody.appendChild(row);
     });
+    
+    if (pagination) {
+        updatePagination(pagination);
+        document.getElementById('paginationTop').style.display = 'flex';
+        document.getElementById('paginationBottom').style.display = 'flex';
+    }
 }
 
 async function viewGame(gameId) {
@@ -489,4 +496,116 @@ function readFileAsText(file) {
         reader.onerror = (e) => reject(new Error('Failed to read file'));
         reader.readAsText(file);
     });
+}
+
+function setupPagination() {
+    document.getElementById('pageSize').addEventListener('change', (e) => {
+        currentPageSize = parseInt(e.target.value);
+        searchGames(1); // Reset to first page when changing page size
+    });
+    
+    // Setup both top and bottom pagination controls
+    const positions = ['Top', 'Bottom'];
+    positions.forEach(pos => {
+        document.getElementById(`firstPage${pos}`).addEventListener('click', () => {
+            if (currentPage > 1) {
+                searchGames(1);
+            }
+        });
+        
+        document.getElementById(`prevPage${pos}`).addEventListener('click', () => {
+            if (currentPage > 1) {
+                searchGames(currentPage - 1);
+            }
+        });
+        
+        document.getElementById(`nextPage${pos}`).addEventListener('click', () => {
+            searchGames(currentPage + 1);
+        });
+        
+        document.getElementById(`lastPage${pos}`).addEventListener('click', () => {
+            const totalPages = parseInt(document.getElementById(`lastPage${pos}`).dataset.totalPages);
+            if (currentPage < totalPages) {
+                searchGames(totalPages);
+            }
+        });
+    });
+}
+
+function updatePagination(pagination) {
+    const { page, pageSize, totalGames, totalPages, hasNext, hasPrev } = pagination;
+    
+    // Update pagination info for both top and bottom
+    const start = (page - 1) * pageSize + 1;
+    const end = Math.min(page * pageSize, totalGames);
+    const infoText = `Showing ${start}-${end} of ${totalGames} games`;
+    
+    document.getElementById('paginationInfoTop').textContent = infoText;
+    document.getElementById('paginationInfoBottom').textContent = infoText;
+    
+    // Update button states for both top and bottom
+    const positions = ['Top', 'Bottom'];
+    positions.forEach(pos => {
+        document.getElementById(`firstPage${pos}`).disabled = !hasPrev;
+        document.getElementById(`prevPage${pos}`).disabled = !hasPrev;
+        document.getElementById(`nextPage${pos}`).disabled = !hasNext;
+        document.getElementById(`lastPage${pos}`).disabled = !hasNext;
+        document.getElementById(`lastPage${pos}`).dataset.totalPages = totalPages;
+    });
+    
+    // Generate page numbers for both top and bottom
+    generatePageNumbers(page, totalPages, 'Top');
+    generatePageNumbers(page, totalPages, 'Bottom');
+}
+
+function generatePageNumbers(currentPage, totalPages, position = '') {
+    const pageNumbersContainer = document.getElementById(`pageNumbers${position}`);
+    pageNumbersContainer.innerHTML = '';
+    
+    if (totalPages <= 1) return;
+    
+    const maxVisible = 7; // Maximum number of page buttons to show
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+    
+    // Adjust start page if we're near the end
+    if (endPage - startPage < maxVisible - 1) {
+        startPage = Math.max(1, endPage - maxVisible + 1);
+    }
+    
+    // Show first page and ellipsis if needed
+    if (startPage > 1) {
+        addPageButton(1, currentPage, position, false);
+        if (startPage > 2) {
+            addPageButton('...', currentPage, position, true);
+        }
+    }
+    
+    // Show page range
+    for (let i = startPage; i <= endPage; i++) {
+        addPageButton(i, currentPage, position, false);
+    }
+    
+    // Show ellipsis and last page if needed
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            addPageButton('...', currentPage, position, true);
+        }
+        addPageButton(totalPages, currentPage, position, false);
+    }
+}
+
+function addPageButton(pageNum, currentPage, position = '', isDots = false) {
+    const pageNumbersContainer = document.getElementById(`pageNumbers${position}`);
+    const button = document.createElement('span');
+    button.className = `page-number ${isDots ? 'dots' : ''} ${pageNum === currentPage ? 'active' : ''}`;
+    button.textContent = pageNum;
+    
+    if (!isDots && pageNum !== currentPage) {
+        button.addEventListener('click', () => {
+            searchGames(pageNum);
+        });
+    }
+    
+    pageNumbersContainer.appendChild(button);
 }
