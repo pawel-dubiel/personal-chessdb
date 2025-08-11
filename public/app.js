@@ -7,6 +7,9 @@ let autoPlay = false;
 let currentPage = 1;
 let currentPageSize = 50;
 let currentSearchParams = {};
+let stockfish = null;
+let analysisMode = false;
+let currentBestMove = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     loadStats();
@@ -29,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupFileUpload();
     setupTabs();
     setupPagination();
+    setupStockfish();
 });
 
 async function loadStats() {
@@ -183,13 +187,19 @@ function closeGameViewer() {
         board = null;
     }
     autoPlay = false;
+    
+    // Stop analysis when closing viewer
+    if (analysisMode) {
+        stopAnalysis();
+    }
 }
 
 function initializeBoard() {
     const config = {
         position: 'start',
         draggable: false,
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+        // Use local chess piece images
+        pieceTheme: './img/chesspieces/{piece}.png',
         moveSpeed: 200,
         snapbackSpeed: 100,
         snapSpeed: 100,
@@ -270,6 +280,17 @@ function navigateMove(index) {
     
     updateMoveHighlight();
     updateCurrentMove();
+    
+    // Trigger analysis if analysis mode is active
+    if (analysisMode) {
+        // Clear previous arrows and analysis immediately
+        clearBoardArrows();
+        document.getElementById('bestMove').textContent = '-';
+        document.getElementById('evaluation').textContent = '+0.00';
+        document.querySelector('.analysis-status').textContent = 'Position changed...';
+        
+        setTimeout(() => analyzeCurrentPosition(), 200);
+    }
 }
 
 function updateMoveHighlight() {
@@ -608,4 +629,404 @@ function addPageButton(pageNum, currentPage, position = '', isDots = false) {
     }
     
     pageNumbersContainer.appendChild(button);
+}
+
+function setupStockfish() {
+    document.getElementById('toggleAnalysis').addEventListener('click', toggleAnalysis);
+}
+
+function toggleAnalysis() {
+    const toggleBtn = document.getElementById('toggleAnalysis');
+    const analysisInfo = document.getElementById('analysisInfo');
+    
+    if (!analysisMode) {
+        // Start analysis
+        analysisMode = true;
+        toggleBtn.textContent = '🛑 Stop Analysis';
+        toggleBtn.classList.remove('btn-secondary');
+        toggleBtn.classList.add('btn-danger');
+        analysisInfo.style.display = 'block';
+        
+        initializeStockfish();
+        analyzeCurrentPosition();
+    } else {
+        // Stop analysis
+        stopAnalysis();
+    }
+}
+
+function stopAnalysis() {
+    analysisMode = false;
+    const toggleBtn = document.getElementById('toggleAnalysis');
+    const analysisInfo = document.getElementById('analysisInfo');
+    
+    toggleBtn.textContent = '🔍 Start Analysis';
+    toggleBtn.classList.remove('btn-danger');
+    toggleBtn.classList.add('btn-secondary');
+    analysisInfo.style.display = 'none';
+    
+    if (stockfish) {
+        stockfish.postMessage('stop');
+    }
+    
+    clearBoardArrows();
+}
+
+function initializeStockfish() {
+    if (stockfish) {
+        stockfish.terminate();
+    }
+    
+    try {
+        // Use local Stockfish worker directly
+        stockfish = new Worker('./stockfish-nnue-16.js');
+        
+        stockfish.onmessage = function(event) {
+            const message = event.data;
+            console.log('Stockfish message:', message); // Debug logging
+            
+            if (message.includes('uciok')) {
+                console.log('Stockfish UCI initialized');
+                // Configure Stockfish options
+                stockfish.postMessage('setoption name Threads value 1');
+                stockfish.postMessage('setoption name Hash value 64');
+                stockfish.postMessage('setoption name Minimum Thinking Time value 1000');
+                stockfish.postMessage('ucinewgame');
+                stockfish.postMessage('isready');
+            } else if (message.includes('readyok')) {
+                console.log('Stockfish is ready');
+                document.querySelector('.analysis-status').textContent = 'Ready';
+            } else if (message.includes('bestmove')) {
+                const parts = message.split(' ');
+                const bestMoveIndex = parts.indexOf('bestmove');
+                if (bestMoveIndex !== -1 && bestMoveIndex + 1 < parts.length) {
+                    const bestMove = parts[bestMoveIndex + 1];
+                    if (bestMove !== '(none)' && bestMove.length >= 4) {
+                        console.log('Best move found:', bestMove);
+                        currentBestMove = bestMove;
+                        updateBestMoveDisplay(bestMove);
+                        showBoardArrow(bestMove);
+                        document.querySelector('.analysis-status').textContent = 'Analysis complete';
+                    }
+                }
+            } else if (message.includes('info') && (message.includes('depth') || message.includes('score'))) {
+                parseAnalysisInfo(message);
+                // Update status with current depth
+                const depthMatch = message.match(/depth (\d+)/);
+                if (depthMatch) {
+                    document.querySelector('.analysis-status').textContent = `Analyzing depth ${depthMatch[1]}...`;
+                }
+            }
+        };
+        
+        stockfish.onerror = function(error) {
+            console.error('Stockfish worker error:', error);
+            document.querySelector('.analysis-status').textContent = 'Analysis failed';
+        };
+        
+        // Initialize Stockfish
+        stockfish.postMessage('uci');
+        
+    } catch (error) {
+        console.error('Failed to initialize Stockfish:', error);
+        document.querySelector('.analysis-status').textContent = 'Analysis unavailable';
+    }
+}
+
+function useMockAnalysis() {
+    console.log('Using mock analysis');
+    // Simple mock analysis for demonstration
+    setTimeout(() => {
+        document.getElementById('analysisDepth').textContent = '10';
+        document.getElementById('bestMove').textContent = 'e2-e4';
+        document.getElementById('evaluation').textContent = '+0.25';
+        document.getElementById('principalVariation').textContent = '1.e4 e5 2.Nf3 Nc6';
+        
+        // Show a mock arrow from e2 to e4
+        if (game && currentMoveIndex === -1) {
+            showBoardArrow('e2e4');
+        }
+    }, 1000);
+}
+
+function analyzeCurrentPosition() {
+    if (!stockfish || !game || !analysisMode) return;
+    
+    clearBoardArrows();
+    document.getElementById('analysisDepth').textContent = '0';
+    document.getElementById('bestMove').textContent = '-';
+    document.getElementById('evaluation').textContent = '+0.00';
+    document.getElementById('principalVariation').textContent = '-';
+    document.querySelector('.analysis-status').textContent = 'Starting analysis...';
+    
+    const fen = game.fen();
+    console.log('Analyzing position:', fen);
+    
+    // Stop any ongoing analysis first
+    stockfish.postMessage('stop');
+    
+    // Start new analysis
+    setTimeout(() => {
+        stockfish.postMessage(`position fen ${fen}`);
+        stockfish.postMessage('go depth 33 movetime 10000'); // 33 depth, max 10 seconds
+    }, 100);
+}
+
+function parseAnalysisInfo(message) {
+    console.log('Raw Stockfish message:', message); // Debug: show full message
+    const parts = message.split(' ');
+    let depth = 0;
+    let score = null;
+    let pv = [];
+    
+    for (let i = 0; i < parts.length; i++) {
+        if (parts[i] === 'depth') {
+            depth = parseInt(parts[i + 1]);
+        } else if (parts[i] === 'score') {
+            if (parts[i + 1] === 'cp') {
+                score = parseInt(parts[i + 2]) / 100;
+            } else if (parts[i + 1] === 'mate') {
+                const mateIn = parseInt(parts[i + 2]);
+                score = mateIn > 0 ? `+M${mateIn}` : `-M${Math.abs(mateIn)}`;
+            }
+        } else if (parts[i] === 'pv') {
+            pv = parts.slice(i + 1);
+            console.log('Found PV in message:', pv); // Debug logging
+            break;
+        }
+    }
+    
+    if (depth > 0) {
+        document.getElementById('analysisDepth').textContent = depth.toString();
+        
+        if (score !== null) {
+            updateEvaluationDisplay(score);
+        }
+        
+        if (pv.length > 0) {
+            console.log('PV found with length:', pv.length, 'moves:', pv); // Debug
+            updatePrincipalVariation(pv);
+            // Update best move in real-time from the first move in principal variation
+            if (pv[0]) {
+                currentBestMove = pv[0];
+                updateBestMoveDisplay(pv[0]);
+            }
+        } else {
+            console.log('No PV in this message, pv.length:', pv.length); // Debug
+        }
+    }
+}
+
+function updateBestMoveDisplay(bestMove) {
+    document.getElementById('bestMove').textContent = formatMove(bestMove);
+}
+
+function updateEvaluationDisplay(score) {
+    const evalElement = document.getElementById('evaluation');
+    
+    if (typeof score === 'string') {
+        // Mate score
+        evalElement.textContent = score;
+        evalElement.className = 'evaluation ' + (score.startsWith('+') ? 'positive' : 'negative');
+    } else {
+        // Centipawn score
+        const displayScore = (game.turn() === 'b' ? -score : score).toFixed(2);
+        evalElement.textContent = displayScore > 0 ? `+${displayScore}` : displayScore.toString();
+        
+        if (Math.abs(displayScore) < 0.1) {
+            evalElement.className = 'evaluation neutral';
+        } else {
+            evalElement.className = 'evaluation ' + (displayScore > 0 ? 'positive' : 'negative');
+        }
+    }
+}
+
+function updatePrincipalVariation(pv) {
+    console.log('Updating PV with:', pv); // Debug logging
+    
+    if (!pv || pv.length === 0) {
+        document.getElementById('principalVariation').textContent = '-';
+        return;
+    }
+    
+    const tempGame = new Chess(game.fen());
+    const formattedMoves = [];
+    const startingMoveNumber = Math.ceil(tempGame.history().length / 2) + 1;
+    let currentMoveNumber = startingMoveNumber;
+    let isWhiteToMove = tempGame.turn() === 'w';
+    
+    for (let i = 0; i < Math.min(pv.length, 8); i++) {
+        try {
+            console.log(`Trying to parse move ${i}: ${pv[i]} in position ${tempGame.fen()}`); // Debug
+            
+            // Convert UCI format to Chess.js format
+            const uciMove = pv[i];
+            let move = null;
+            
+            if (uciMove && uciMove.length >= 4) {
+                const from = uciMove.substring(0, 2);
+                const to = uciMove.substring(2, 4);
+                const promotion = uciMove.length > 4 ? uciMove.substring(4, 5) : undefined;
+                
+                // Try to make the move using from/to format
+                move = tempGame.move({
+                    from: from,
+                    to: to,
+                    promotion: promotion
+                });
+            }
+            
+            console.log('Move parsed successfully:', move); // Debug
+            
+            if (move) {
+                if (isWhiteToMove) {
+                    formattedMoves.push(`${currentMoveNumber}.${move.san}`);
+                } else {
+                    // For black moves, only show move number if it's the first move
+                    if (i === 0 && !isWhiteToMove) {
+                        formattedMoves.push(`${currentMoveNumber}...${move.san}`);
+                    } else {
+                        formattedMoves.push(move.san);
+                    }
+                    currentMoveNumber++;
+                }
+                isWhiteToMove = !isWhiteToMove;
+                console.log('Formatted moves so far:', formattedMoves); // Debug
+                console.log('New position after move:', tempGame.fen()); // Debug
+            } else {
+                console.log('Move was null/undefined - breaking'); // Debug
+                break; // Stop if we can't parse a move
+            }
+        } catch (e) {
+            console.log('Error parsing move:', pv[i], 'Error:', e); // Debug logging
+            break;
+        }
+    }
+    
+    const result = formattedMoves.join(' ');
+    console.log('Formatted PV:', result); // Debug logging
+    
+    const pvElement = document.getElementById('principalVariation');
+    console.log('PV Element found:', !!pvElement); // Debug logging
+    console.log('Setting PV text to:', result || '-'); // Debug logging
+    
+    if (pvElement) {
+        // Try both textContent and innerHTML
+        pvElement.textContent = result || '-';
+        pvElement.innerHTML = result || '-';
+        
+        // Force a style update to make sure it displays
+        pvElement.style.display = 'block';
+        pvElement.style.visibility = 'visible';
+        pvElement.style.color = '#495057';
+        pvElement.style.fontSize = '13px';
+        
+        console.log('PV Element content after update:', pvElement.textContent); // Debug logging
+        console.log('PV Element innerHTML after update:', pvElement.innerHTML); // Debug logging
+        console.log('PV Element computed style display:', window.getComputedStyle(pvElement).display); // Debug logging
+        console.log('PV Element computed style visibility:', window.getComputedStyle(pvElement).visibility); // Debug logging
+    } else {
+        console.error('principalVariation element not found!');
+    }
+}
+
+function formatMove(uciMove) {
+    if (!game || !uciMove || uciMove.length < 4) return uciMove;
+    
+    try {
+        const tempGame = new Chess(game.fen());
+        const from = uciMove.substring(0, 2);
+        const to = uciMove.substring(2, 4);
+        const promotion = uciMove.length > 4 ? uciMove.substring(4, 5) : undefined;
+        
+        const move = tempGame.move({
+            from: from,
+            to: to,
+            promotion: promotion
+        });
+        
+        return move ? move.san : uciMove;
+    } catch (e) {
+        return uciMove;
+    }
+}
+
+function showBoardArrow(uciMove) {
+    if (!uciMove || uciMove.length < 4) return;
+    
+    const fromSquare = uciMove.substring(0, 2);
+    const toSquare = uciMove.substring(2, 4);
+    
+    clearBoardArrows();
+    drawArrow(fromSquare, toSquare);
+}
+
+function drawArrow(fromSquare, toSquare) {
+    const boardElement = document.querySelector('#board');
+    if (!boardElement) return;
+    
+    const boardRect = boardElement.getBoundingClientRect();
+    const squareSize = boardRect.width / 8;
+    
+    const fromCoords = getSquareCoordinates(fromSquare, squareSize, board.orientation());
+    const toCoords = getSquareCoordinates(toSquare, squareSize, board.orientation());
+    
+    const arrowElement = document.createElement('div');
+    arrowElement.className = 'board-arrow';
+    arrowElement.innerHTML = createArrowSVG(fromCoords, toCoords, squareSize);
+    
+    boardElement.appendChild(arrowElement);
+}
+
+function getSquareCoordinates(square, squareSize, orientation) {
+    const file = square.charCodeAt(0) - 97; // a=0, b=1, etc.
+    const rank = parseInt(square.charAt(1)) - 1; // 1=0, 2=1, etc.
+    
+    let x, y;
+    if (orientation === 'white') {
+        x = file * squareSize + squareSize / 2;
+        y = (7 - rank) * squareSize + squareSize / 2;
+    } else {
+        x = (7 - file) * squareSize + squareSize / 2;
+        y = rank * squareSize + squareSize / 2;
+    }
+    
+    return { x, y };
+}
+
+function createArrowSVG(from, to, squareSize) {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const angle = Math.atan2(dy, dx);
+    const length = Math.sqrt(dx * dx + dy * dy);
+    
+    // Shorten the arrow to not overlap with pieces
+    const shortenBy = squareSize * 0.3;
+    const newLength = Math.max(length - shortenBy, squareSize * 0.2);
+    const ratio = newLength / length;
+    
+    const newTo = {
+        x: from.x + dx * ratio,
+        y: from.y + dy * ratio
+    };
+    
+    const arrowHeadSize = squareSize * 0.15;
+    
+    return `
+        <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                        refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" class="arrow-head" />
+                </marker>
+            </defs>
+            <line x1="${from.x}" y1="${from.y}" x2="${newTo.x}" y2="${newTo.y}" 
+                  class="arrow-line" marker-end="url(#arrowhead)" />
+        </svg>
+    `;
+}
+
+function clearBoardArrows() {
+    const arrows = document.querySelectorAll('.board-arrow');
+    arrows.forEach(arrow => arrow.remove());
 }

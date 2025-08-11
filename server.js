@@ -19,7 +19,25 @@ const upload = multer({
 
 app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
-app.use(express.static('public'));
+
+// Enable SharedArrayBuffer for Stockfish WASM (required for all static files)
+app.use(express.static('public', {
+    setHeaders: (res, path, stat) => {
+        // Set COEP and COOP headers for all static files to enable SharedArrayBuffer
+        res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+        res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+        
+        // Set CORS headers for worker files to be embeddable
+        if (path.endsWith('.js') || path.endsWith('.wasm')) {
+            res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        }
+        
+        // Set correct MIME type for WASM files
+        if (path.endsWith('.wasm')) {
+            res.setHeader('Content-Type', 'application/wasm');
+        }
+    }
+}));
 
 const db = new sqlite3.Database('./chess_database.db');
 

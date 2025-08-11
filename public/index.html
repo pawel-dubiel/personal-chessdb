@@ -149,6 +149,23 @@
                         <div class="game-controls">
                             <div class="game-info">
                                 <div id="gameDetails"></div>
+                                <div class="analysis-controls">
+                                    <button id="toggleAnalysis" class="btn btn-secondary">🔍 Start Analysis</button>
+                                    <div id="analysisInfo" class="analysis-info" style="display: none;">
+                                        <div class="analysis-header">
+                                            <span class="analysis-status">Analyzing...</span>
+                                            <div class="analysis-depth">Depth: <span id="analysisDepth">0</span></div>
+                                        </div>
+                                        <div class="best-move">
+                                            Best: <span id="bestMove">-</span>
+                                            <span class="evaluation" id="evaluation">+0.00</span>
+                                        </div>
+                                        <div class="principal-variation">
+                                            <label>Best Line:</label>
+                                            <div id="principalVariation">-</div>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div id="moveList" class="move-list"></div>
                             </div>
                             <div class="control-buttons">

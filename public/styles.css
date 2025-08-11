@@ -493,6 +493,117 @@ button:disabled {
     background: transparent;
 }
 
+.analysis-controls {
+    margin: 15px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+}
+
+.analysis-info {
+    margin-top: 15px;
+    padding: 10px;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #e3e6ea;
+}
+
+.analysis-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.analysis-status {
+    color: #28a745;
+    font-weight: 500;
+}
+
+.analysis-depth {
+    color: #6c757d;
+    font-size: 12px;
+}
+
+.best-move {
+    margin: 8px 0;
+    font-family: monospace;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.evaluation {
+    float: right;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.evaluation.positive {
+    background: #d4edda;
+    color: #155724;
+}
+
+.evaluation.negative {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.evaluation.neutral {
+    background: #e2e3e5;
+    color: #383d41;
+}
+
+.principal-variation {
+    margin-top: 10px;
+}
+
+.principal-variation label {
+    display: block;
+    font-size: 12px;
+    color: #6c757d;
+    margin-bottom: 4px;
+    font-weight: 500;
+}
+
+.principal-variation div {
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    color: #495057;
+}
+
+/* Board arrow styles */
+.chess-board {
+    position: relative;
+}
+
+.board-arrow {
+    position: absolute;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.board-arrow svg {
+    width: 100%;
+    height: 100%;
+}
+
+.arrow-line {
+    stroke: #ff6b6b;
+    stroke-width: 8;
+    stroke-linecap: round;
+    opacity: 0.8;
+}
+
+.arrow-head {
+    fill: #ff6b6b;
+    opacity: 0.8;
+}
+
 @media (max-width: 1024px) {
     .main-content {
         grid-template-columns: 1fr;
