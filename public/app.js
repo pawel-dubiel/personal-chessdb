@@ -568,6 +568,23 @@ function navigateMove(index) {
         board.position(game.fen(), true);
     }
     
+    // Clear guess mode data when position changes
+    if (guessMode) {
+        bestMoveAtPosition = null;
+        evaluationAtPosition = null;
+        lastPosition = null;
+        document.getElementById('moveFeedback').style.display = 'none';
+        
+        // Always hide analysis info in guess mode
+        forceHideAnalysisInfo();
+        
+        // Restart analysis for the new position
+        if (analysisMode) {
+            stopAnalysis();
+            setTimeout(() => startBackgroundAnalysis(), 100);
+        }
+    }
+    
     updateMoveHighlight();
     updateCurrentMove();
     
@@ -935,7 +952,11 @@ function toggleAnalysis() {
         toggleBtn.textContent = '🛑 Stop Analysis';
         toggleBtn.classList.remove('btn-secondary');
         toggleBtn.classList.add('btn-danger');
-        analysisInfo.style.display = 'block';
+        
+        // Only show analysis info if not in guess mode
+        if (!guessMode) {
+            analysisInfo.style.display = 'block';
+        }
         
         initializeStockfish();
         analyzeCurrentPosition();
@@ -994,6 +1015,13 @@ function initializeStockfish() {
                     if (bestMove !== '(none)' && bestMove.length >= 4) {
                         console.log('Best move found:', bestMove);
                         currentBestMove = bestMove;
+                        
+                        // Store for guess mode
+                        if (guessMode) {
+                            bestMoveAtPosition = bestMove;
+                            lastPosition = game.fen();
+                        }
+                        
                         updateBestMoveDisplay(bestMove);
                         showBoardArrow(bestMove);
                         document.querySelector('.analysis-status').textContent = 'Analysis complete';
@@ -1091,6 +1119,11 @@ function parseAnalysisInfo(message) {
         
         if (score !== null) {
             updateEvaluationDisplay(score);
+            
+            // Store evaluation for guess mode
+            if (guessMode && typeof score === 'number') {
+                evaluationAtPosition = score;
+            }
         }
         
         if (pv.length > 0) {
@@ -1100,6 +1133,12 @@ function parseAnalysisInfo(message) {
             if (pv[0]) {
                 currentBestMove = pv[0];
                 updateBestMoveDisplay(pv[0]);
+                
+                // Store for guess mode
+                if (guessMode) {
+                    bestMoveAtPosition = pv[0];
+                    lastPosition = game.fen();
+                }
             }
         } else {
             console.log('No PV in this message, pv.length:', pv.length); // Debug
