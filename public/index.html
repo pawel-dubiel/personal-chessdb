@@ -151,6 +151,7 @@
                                 <div id="gameDetails"></div>
                                 <div class="analysis-controls">
                                     <button id="toggleAnalysis" class="btn btn-secondary">🔍 Start Analysis</button>
+                                    <button id="toggleGuessMode" class="btn btn-secondary">🎯 Guess Mode: OFF</button>
                                     <div id="analysisInfo" class="analysis-info" style="display: none;">
                                         <div class="analysis-header">
                                             <span class="analysis-status">Analyzing...</span>
@@ -164,6 +165,11 @@
                                             <label>Best Line:</label>
                                             <div id="principalVariation">-</div>
                                         </div>
+                                    </div>
+                                    <div id="moveFeedback" class="move-feedback" style="display: none;">
+                                        <div class="feedback-header">Move Evaluation</div>
+                                        <div id="feedbackMessage" class="feedback-message"></div>
+                                        <div id="feedbackDetails" class="feedback-details"></div>
                                     </div>
                                 </div>
                                 <div id="moveList" class="move-list"></div>

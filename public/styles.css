@@ -576,6 +576,38 @@ button:disabled {
     color: #495057;
 }
 
+.move-feedback {
+    margin-top: 15px;
+    padding: 12px;
+    border-radius: 6px;
+    border: 2px solid #e9ecef;
+    background: #f8f9fa;
+}
+
+.feedback-header {
+    font-weight: 600;
+    font-size: 14px;
+    color: #495057;
+    margin-bottom: 8px;
+}
+
+.feedback-message {
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 6px;
+}
+
+.feedback-message.excellent { color: #28a745; }
+.feedback-message.good { color: #17a2b8; }
+.feedback-message.ok { color: #ffc107; color: #856404; }
+.feedback-message.poor { color: #dc3545; }
+
+.feedback-details {
+    font-size: 12px;
+    color: #6c757d;
+    line-height: 1.4;
+}
+
 /* Board arrow styles */
 .chess-board {
     position: relative;
