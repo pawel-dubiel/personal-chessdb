@@ -1,0 +1,55 @@
+# Chess Guess Mode Debugging Instructions
+
+## Current Status
+- ✅ Evaluation logic tested and working perfectly (all 6 test cases pass)
+- ✅ Comprehensive test suite created in test-evaluation-logic.js
+- ✅ Debug functions added to app.js
+- ❌ Issue still exists: wrong best moves shown for black/evaluation problems
+
+## Debug Steps to Identify Root Cause
+
+### Steps to Run:
+1. Load a game and turn on guess mode (🎯 Guess Mode: ON)
+2. Wait for analysis to complete (until you see best move stored in console)
+3. Run in browser console: `debugRealIssue()`
+4. Make a move by dragging a piece
+5. Check console output to identify the problem
+
+### What the Debug Will Show:
+- ❌ **Missing analysis data** → Problem with data storage
+- ❌ **evaluateAlternativeMove returns null** → Problem with async evaluation  
+- ✅ **Logic works but wrong display** → Problem with feedback display
+- ✅ **Everything works** → Problem somewhere else entirely
+
+## Known Issues to Investigate:
+1. **Wrong best move for black**: Shows white moves (like d2d4) when black to move
+2. **Evaluation perspective**: May not be properly adjusting for black's perspective
+3. **Async callback chain**: evaluateAlternativeMove might be failing
+4. **Move parsing**: UCI to Chess.js conversion might have issues
+
+## Test Files Created:
+- `test-evaluation-logic.js` - Tests core evaluation logic (PASSING)
+- `test-guess-mode.html` - Browser-based comprehensive test suite
+- `debug-real-issue.js` - Debug function (now integrated in app.js)
+
+## Functions Available for Debugging:
+- `debugRealIssue()` - Main debug function to identify root cause
+- `debugGuessMode()` - Test evaluation with stored best move
+- Both functions are available in browser console when app is loaded
+
+## Suspected Root Causes (in order of likelihood):
+1. **evaluateAlternativeMove async function failing** - Most likely
+2. **Data storage timing issues** - bestMoveAtPosition not set when needed  
+3. **Move parsing in UCI format** - Chess.js compatibility issues
+4. **Evaluation adjustment logic** - Though tests show this works
+
+## Next Actions After Debug:
+1. Run debugRealIssue() to identify exact failure point
+2. Fix the identified issue systematically
+3. Re-test with the same debug function
+4. Create regression test to prevent future issues
+
+## Notes:
+- The core evaluation logic is mathematically correct (proven by tests)
+- The issue is in the data flow, not the algorithm
+- Focus debugging on async operations and data timing

@@ -43,6 +43,98 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Add keyboard support for navigation
     document.addEventListener('keydown', handleKeyDown);
+    
+    // Add debug test function (remove in production)
+    window.debugGuessMode = function() {
+        console.log('=== GUESS MODE DEBUG TEST ===');
+        console.log('guessMode:', guessMode);
+        console.log('analysisMode:', analysisMode);
+        console.log('currentGame:', currentGame ? 'loaded' : 'none');
+        console.log('game position:', game ? game.fen() : 'none');
+        console.log('game turn:', game ? game.turn() : 'none');
+        console.log('bestMoveAtPosition:', bestMoveAtPosition);
+        console.log('evaluationAtPosition:', evaluationAtPosition);
+        console.log('lastPosition:', lastPosition);
+        
+        if (game && bestMoveAtPosition) {
+            // Test the evaluation with the best move
+            console.log('\n=== TESTING BEST MOVE ===');
+            const tempGame = new Chess(game.fen());
+            const from = bestMoveAtPosition.substring(0, 2);
+            const to = bestMoveAtPosition.substring(2, 4);
+            const promotion = bestMoveAtPosition.length > 4 ? bestMoveAtPosition.substring(4, 5) : undefined;
+            
+            const testMove = tempGame.move({ from, to, promotion });
+            console.log('Best move parsed:', testMove);
+            console.log('Best move UCI:', bestMoveAtPosition);
+            console.log('Best move formatted:', formatMove(bestMoveAtPosition));
+            
+            // Simulate evaluation
+            evaluatePlayerMove(testMove);
+        }
+        console.log('=== END DEBUG TEST ===\n');
+    };
+
+    // Real issue debugger
+    window.debugRealIssue = function() {
+        console.log('=== DEBUGGING REAL ISSUE ===');
+        
+        // Check current state
+        console.log('guessMode:', guessMode);
+        console.log('bestMoveAtPosition:', bestMoveAtPosition);
+        console.log('evaluationAtPosition:', evaluationAtPosition);
+        console.log('game.turn():', game ? game.turn() : 'no game');
+        console.log('game.fen():', game ? game.fen() : 'no game');
+        
+        if (!bestMoveAtPosition || evaluationAtPosition === null) {
+            console.log('❌ Missing analysis data - this is the problem!');
+            return;
+        }
+        
+        // Test the evaluation logic with mock data to prove it works
+        const mockPlayerEval = evaluationAtPosition - 0.3; // Slightly worse than best
+        const bestEval = evaluationAtPosition;
+        const isBlackToMove = game.turn() === 'b';
+        
+        console.log('\n=== TESTING EVALUATION LOGIC ===');
+        console.log('Mock data: playerEval =', mockPlayerEval, ', bestEval =', bestEval, ', isBlackToMove =', isBlackToMove);
+        
+        // Apply the same logic as in evaluatePlayerMove
+        let adjustedBestEval = bestEval;
+        let adjustedPlayerEval = mockPlayerEval;
+        
+        if (isBlackToMove) {
+            adjustedBestEval = -adjustedBestEval;
+            adjustedPlayerEval = -adjustedPlayerEval;
+        }
+        
+        const evalDiff = Math.abs(adjustedPlayerEval - adjustedBestEval);
+        console.log('Adjusted: playerEval =', adjustedPlayerEval, ', bestEval =', adjustedBestEval, ', diff =', evalDiff);
+        
+        let quality = 'unknown';
+        if (evalDiff <= 0.1) quality = 'excellent';
+        else if (evalDiff <= 0.5) quality = 'good';
+        else if (evalDiff <= 1.0) quality = 'ok';
+        else quality = 'poor';
+        
+        console.log('Expected quality:', quality);
+        
+        // Test if the issue is in the evaluateAlternativeMove async function
+        console.log('\n=== TESTING evaluateAlternativeMove ===');
+        const testMoveUci = bestMoveAtPosition; // Use best move for guaranteed result
+        console.log('Testing with move:', testMoveUci);
+        
+        evaluateAlternativeMove(testMoveUci, (result) => {
+            console.log('evaluateAlternativeMove callback result:', result);
+            if (result === null) {
+                console.log('❌ evaluateAlternativeMove returned null - this might be the bug!');
+            } else {
+                console.log('✅ evaluateAlternativeMove worked, result:', result);
+            }
+        });
+        
+        console.log('=== END REAL ISSUE DEBUG ===');
+    };
 });
 
 function handleKeyDown(event) {
@@ -241,6 +333,12 @@ function initializeBoard() {
         draggable: true,
         onDrop: onPieceDrop,
         onDragStart: onDragStart,
+        onMouseoverSquare: (square, piece) => {
+            console.log('Mouse over square:', square, 'piece:', piece);
+        },
+        onMouseoutSquare: (square, piece) => {
+            console.log('Mouse out square:', square, 'piece:', piece);
+        },
         // Use local chess piece images
         pieceTheme: './img/chesspieces/{piece}.png',
         moveSpeed: 200,
@@ -259,17 +357,22 @@ function initializeBoard() {
 }
 
 function onDragStart(source, piece, position, orientation) {
+    console.log('onDragStart called:', { source, piece, guessMode, turn: game.turn() });
+    
     // Only allow dragging if guess mode is on
     if (!guessMode) {
+        console.log('Drag blocked: guess mode is off');
         return false;
     }
     
     // Only allow dragging pieces of the side to move
     if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
         (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+        console.log('Drag blocked: wrong side to move');
         return false;
     }
     
+    console.log('Drag allowed');
     return true;
 }
 
@@ -336,8 +439,11 @@ function startBackgroundAnalysis() {
 }
 
 function onPieceDrop(source, target, piece, newPos, oldPos, orientation) {
+    console.log('onPieceDrop called:', { source, target, piece, guessMode });
+    
     // Prevent the move if not in guess mode
     if (!guessMode) {
+        console.log('Drop blocked: guess mode is off');
         return 'snapback';
     }
     
@@ -364,14 +470,38 @@ function onPieceDrop(source, target, piece, newPos, oldPos, orientation) {
 }
 
 function evaluatePlayerMove(playerMove) {
-    if (!bestMoveAtPosition || !evaluationAtPosition) {
+    console.log('\n=== EVALUATE PLAYER MOVE ===');
+    console.log('playerMove:', playerMove);
+    console.log('bestMoveAtPosition:', bestMoveAtPosition);
+    console.log('evaluationAtPosition:', evaluationAtPosition);
+    console.log('current turn:', game.turn());
+    console.log('current position:', game.fen());
+    
+    if (!bestMoveAtPosition || evaluationAtPosition === null || evaluationAtPosition === undefined) {
+        console.log('Missing analysis data, showing evaluating message');
         showMoveFeedback('⏳ Evaluating...', 'Please wait while the engine analyzes your move.', 'neutral');
-        // Store the move to evaluate later when we have the best move
-        setTimeout(() => {
-            if (bestMoveAtPosition) {
+        
+        // Try multiple times with increasing delays, then give up
+        let attempts = 0;
+        const maxAttempts = 8;
+        
+        const retryEvaluation = () => {
+            attempts++;
+            if (bestMoveAtPosition && evaluationAtPosition) {
                 evaluatePlayerMove(playerMove);
+            } else if (attempts < maxAttempts) {
+                setTimeout(retryEvaluation, 500 * attempts); // Increasing delay
+            } else {
+                // Give up and provide basic feedback
+                showMoveFeedback(
+                    '⚠️ Analysis Timeout', 
+                    'Engine analysis took too long. Try making another move or restart analysis.', 
+                    'neutral'
+                );
             }
-        }, 1000);
+        };
+        
+        setTimeout(retryEvaluation, 500);
         return;
     }
     
@@ -379,6 +509,7 @@ function evaluatePlayerMove(playerMove) {
     const bestMoveUci = bestMoveAtPosition;
     
     console.log(`Comparing player move ${playerMoveUci} to best move ${bestMoveUci}`);
+    console.log('Current evaluation at position:', evaluationAtPosition);
     
     // If player move matches best move
     if (playerMoveUci === bestMoveUci) {
@@ -391,7 +522,9 @@ function evaluatePlayerMove(playerMove) {
     }
     
     // Evaluate the player's move by temporarily making it and getting evaluation
+    console.log('Calling evaluateAlternativeMove for:', playerMoveUci);
     evaluateAlternativeMove(playerMoveUci, (playerEval) => {
+        console.log('evaluateAlternativeMove callback received:', playerEval);
         if (playerEval === null) {
             showMoveFeedback(
                 '❌ Illegal Move', 
@@ -401,10 +534,19 @@ function evaluatePlayerMove(playerMove) {
             return;
         }
         
-        const bestEval = evaluationAtPosition;
-        const evalDiff = Math.abs(playerEval - bestEval);
+        // Adjust evaluations to be from the current player's perspective
+        let bestEval = evaluationAtPosition;
+        let adjustedPlayerEval = playerEval;
         
-        console.log(`Best eval: ${bestEval}, Player eval: ${playerEval}, Diff: ${evalDiff}`);
+        // If it's black to move, both evaluations should be negated for comparison
+        if (game.turn() === 'b') {
+            bestEval = -bestEval;
+            adjustedPlayerEval = -adjustedPlayerEval;
+        }
+        
+        const evalDiff = Math.abs(adjustedPlayerEval - bestEval);
+        
+        console.log(`Best eval: ${bestEval}, Player eval: ${adjustedPlayerEval}, Diff: ${evalDiff}`);
         
         if (evalDiff <= 0.1) {
             showMoveFeedback(
@@ -415,19 +557,19 @@ function evaluatePlayerMove(playerMove) {
         } else if (evalDiff <= 0.5) {
             showMoveFeedback(
                 '👍 Good move!', 
-                `Very close to optimal! Best: ${formatMove(bestMoveUci)} (${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)}), Your move: ${playerEval > 0 ? '+' : ''}${playerEval.toFixed(2)}`, 
+                `Very close to optimal! Best: ${formatMove(bestMoveUci)} (${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)}), Your move: ${adjustedPlayerEval > 0 ? '+' : ''}${adjustedPlayerEval.toFixed(2)}`, 
                 'good'
             );
         } else if (evalDiff <= 1.0) {
             showMoveFeedback(
                 '👌 OK move', 
-                `Decent, but there's better. Best: ${formatMove(bestMoveUci)} (${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)}), Your move: ${playerEval > 0 ? '+' : ''}${playerEval.toFixed(2)}`, 
+                `Decent, but there's better. Best: ${formatMove(bestMoveUci)} (${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)}), Your move: ${adjustedPlayerEval > 0 ? '+' : ''}${adjustedPlayerEval.toFixed(2)}`, 
                 'ok'
             );
         } else {
             showMoveFeedback(
                 '⚠️ Poor move', 
-                `This loses advantage. Best: ${formatMove(bestMoveUci)} (${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)}), Your move: ${playerEval > 0 ? '+' : ''}${playerEval.toFixed(2)}`, 
+                `This loses advantage. Best: ${formatMove(bestMoveUci)} (${bestEval > 0 ? '+' : ''}${bestEval.toFixed(2)}), Your move: ${adjustedPlayerEval > 0 ? '+' : ''}${adjustedPlayerEval.toFixed(2)}`, 
                 'poor'
             );
         }
@@ -435,7 +577,9 @@ function evaluatePlayerMove(playerMove) {
 }
 
 function evaluateAlternativeMove(moveUci, callback) {
+    console.log('evaluateAlternativeMove called for move:', moveUci);
     if (!stockfish) {
+        console.log('No stockfish available');
         callback(null);
         return;
     }
@@ -469,10 +613,7 @@ function evaluateAlternativeMove(moveUci, callback) {
             for (let i = 0; i < parts.length; i++) {
                 if (parts[i] === 'score' && parts[i + 1] === 'cp') {
                     tempEvaluation = parseInt(parts[i + 2]) / 100;
-                    // Adjust for black to move
-                    if (tempGame.turn() === 'b') {
-                        tempEvaluation = -tempEvaluation;
-                    }
+                    // Don't adjust here - we'll do it in the comparison function
                     break;
                 }
             }
@@ -499,10 +640,16 @@ function showMoveFeedback(title, details, type) {
     
     feedbackDiv.style.display = 'block';
     
-    // Auto-hide after 8 seconds
-    setTimeout(() => {
+    // Clear any existing timeout
+    if (feedbackDiv.hideTimeout) {
+        clearTimeout(feedbackDiv.hideTimeout);
+    }
+    
+    // Auto-hide - shorter timeout for temporary messages
+    const hideDelay = title.includes('Evaluating') || title.includes('Timeout') ? 3000 : 8000;
+    feedbackDiv.hideTimeout = setTimeout(() => {
         feedbackDiv.style.display = 'none';
-    }, 8000);
+    }, hideDelay);
 }
 
 function loadGameMoves() {
@@ -1123,6 +1270,7 @@ function parseAnalysisInfo(message) {
             // Store evaluation for guess mode
             if (guessMode && typeof score === 'number') {
                 evaluationAtPosition = score;
+                console.log('Stored evaluation for guess mode:', evaluationAtPosition);
             }
         }
         
@@ -1138,6 +1286,7 @@ function parseAnalysisInfo(message) {
                 if (guessMode) {
                     bestMoveAtPosition = pv[0];
                     lastPosition = game.fen();
+                    console.log('Stored best move for guess mode:', bestMoveAtPosition, 'at position:', lastPosition);
                 }
             }
         } else {
