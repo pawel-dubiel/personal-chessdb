@@ -208,49 +208,88 @@ app.post('/api/games/upload', upload.single('file'), async (req, res) => {
 });
 
 app.get('/api/games/search', (req, res) => {
-  const { white, black, opening, eco, result, dateFrom, dateTo, limit = 100 } = req.query;
+  const { 
+    white, 
+    black, 
+    opening, 
+    eco, 
+    result, 
+    dateFrom, 
+    dateTo, 
+    page = 1, 
+    pageSize = 50 
+  } = req.query;
   
-  let query = 'SELECT * FROM games WHERE 1=1';
+  const offset = (parseInt(page) - 1) * parseInt(pageSize);
+  const limit = parseInt(pageSize);
+  
+  // Build WHERE clause
+  let whereClause = 'WHERE 1=1';
   const params = [];
 
   if (white) {
-    query += ' AND white LIKE ?';
+    whereClause += ' AND white LIKE ?';
     params.push(`%${white}%`);
   }
   if (black) {
-    query += ' AND black LIKE ?';
+    whereClause += ' AND black LIKE ?';
     params.push(`%${black}%`);
   }
   if (opening) {
-    query += ' AND opening LIKE ?';
+    whereClause += ' AND opening LIKE ?';
     params.push(`%${opening}%`);
   }
   if (eco) {
-    query += ' AND eco LIKE ?';
+    whereClause += ' AND eco LIKE ?';
     params.push(`%${eco}%`);
   }
   if (result) {
-    query += ' AND result = ?';
+    whereClause += ' AND result = ?';
     params.push(result);
   }
   if (dateFrom) {
-    query += ' AND date >= ?';
+    whereClause += ' AND date >= ?';
     params.push(dateFrom);
   }
   if (dateTo) {
-    query += ' AND date <= ?';
+    whereClause += ' AND date <= ?';
     params.push(dateTo);
   }
 
-  query += ' ORDER BY date DESC LIMIT ?';
-  params.push(parseInt(limit));
-
-  db.all(query, params, (err, rows) => {
+  // First get total count for pagination
+  const countQuery = `SELECT COUNT(*) as total FROM games ${whereClause}`;
+  
+  db.get(countQuery, params, (err, countResult) => {
     if (err) {
       res.status(500).json({ success: false, error: err.message });
-    } else {
-      res.json({ success: true, games: rows, count: rows.length });
+      return;
     }
+    
+    const totalGames = countResult.total;
+    const totalPages = Math.ceil(totalGames / limit);
+    
+    // Then get paginated results
+    const dataQuery = `SELECT * FROM games ${whereClause} ORDER BY id DESC LIMIT ? OFFSET ?`;
+    const dataParams = [...params, limit, offset];
+    
+    db.all(dataQuery, dataParams, (err, rows) => {
+      if (err) {
+        res.status(500).json({ success: false, error: err.message });
+      } else {
+        res.json({ 
+          success: true, 
+          games: rows, 
+          pagination: {
+            page: parseInt(page),
+            pageSize: limit,
+            totalGames,
+            totalPages,
+            hasNext: parseInt(page) < totalPages,
+            hasPrev: parseInt(page) > 1
+          }
+        });
+      }
+    });
   });
 });
 
