@@ -860,6 +860,8 @@ function setupTabs() {
 function setupPositionSearch() {
     let positionBoard = null;
     let positionGame = new Chess();
+    let multiPieceSquares = {}; // Track squares with multiple piece options
+    let currentSelectedSquare = null;
     
     const boardConfig = {
         draggable: true,
@@ -870,6 +872,12 @@ function setupPositionSearch() {
             return true;
         },
         onDrop: function (source, target, piece, newPos, oldPos, orientation) {
+            // Check if this is a multi-piece square
+            if (multiPieceSquares[target]) {
+                // If it's already a multi-piece square, open the selection modal
+                openPieceSelectionModal(target);
+                return 'snapback'; // Don't place the piece
+            }
             updateFEN();
         },
         onSnapEnd: function () {
@@ -879,20 +887,180 @@ function setupPositionSearch() {
     
     positionBoard = Chessboard('positionBoard', boardConfig);
     
-    function updateFEN() {
-        const fen = positionBoard.fen() + ' w - - 0 1';
-        document.getElementById('fenInput').value = fen;
-        positionGame.load(fen);
+    // Add right-click event to squares for multi-piece selection
+    setTimeout(() => {
+        const squares = document.querySelectorAll('#positionBoard .square-55d63');
+        squares.forEach(square => {
+            square.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                const squareEl = e.target.closest('.square-55d63');
+                if (squareEl) {
+                    const square = squareEl.getAttribute('data-square');
+                    if (square) {
+                        openPieceSelectionModal(square);
+                    }
+                }
+            });
+        });
+    }, 500);
+    
+    function openPieceSelectionModal(square) {
+        currentSelectedSquare = square;
+        document.getElementById('selectedSquare').textContent = square.toUpperCase();
+        
+        // Clear all checkboxes first
+        const checkboxes = document.querySelectorAll('#pieceSelectionModal input[type="checkbox"]');
+        checkboxes.forEach(cb => cb.checked = false);
+        
+        // If this square already has multiple pieces selected, check them
+        if (multiPieceSquares[square]) {
+            multiPieceSquares[square].forEach(piece => {
+                const checkbox = document.querySelector(`#pieceSelectionModal input[value="${piece}"]`);
+                if (checkbox) checkbox.checked = true;
+            });
+        } else {
+            // If there's a current piece on the square, check it
+            const currentPiece = positionBoard.position()[square];
+            if (currentPiece) {
+                const checkbox = document.querySelector(`#pieceSelectionModal input[value="${currentPiece}"]`);
+                if (checkbox) checkbox.checked = true;
+            }
+        }
+        
+        document.getElementById('pieceSelectionModal').style.display = 'block';
     }
+    
+    function closePieceSelectionModal() {
+        document.getElementById('pieceSelectionModal').style.display = 'none';
+        currentSelectedSquare = null;
+    }
+    
+    function applyPieceSelection() {
+        if (!currentSelectedSquare) return;
+        
+        const selectedPieces = [];
+        const checkboxes = document.querySelectorAll('#pieceSelectionModal input[type="checkbox"]:checked');
+        checkboxes.forEach(cb => selectedPieces.push(cb.value));
+        
+        if (selectedPieces.length === 0) {
+            // Clear the square
+            delete multiPieceSquares[currentSelectedSquare];
+            positionBoard.removePiece(currentSelectedSquare);
+            removeMultiPieceIndicator(currentSelectedSquare);
+        } else if (selectedPieces.length === 1) {
+            // Single piece - place it normally
+            delete multiPieceSquares[currentSelectedSquare];
+            positionBoard.position(currentSelectedSquare, selectedPieces[0]);
+            removeMultiPieceIndicator(currentSelectedSquare);
+        } else {
+            // Multiple pieces - store as multi-piece square
+            multiPieceSquares[currentSelectedSquare] = selectedPieces;
+            // Place the first piece visually, but mark as multi-piece
+            positionBoard.position(currentSelectedSquare, selectedPieces[0]);
+            addMultiPieceIndicator(currentSelectedSquare);
+        }
+        
+        updateFEN();
+        closePieceSelectionModal();
+    }
+    
+    function addMultiPieceIndicator(square) {
+        setTimeout(() => {
+            const squareEl = document.querySelector(`#positionBoard .square-${square}`);
+            if (squareEl) {
+                squareEl.classList.add('multi-piece-square');
+            }
+        }, 100);
+    }
+    
+    function removeMultiPieceIndicator(square) {
+        const squareEl = document.querySelector(`#positionBoard .square-${square}`);
+        if (squareEl) {
+            squareEl.classList.remove('multi-piece-square');
+        }
+    }
+    
+    function updateFEN() {
+        // Generate a special FEN that includes multi-piece information
+        const position = positionBoard.position();
+        let fenWithMultiPieces = '';
+        
+        // Convert position to FEN, but handle multi-piece squares
+        for (let rank = 8; rank >= 1; rank--) {
+            let rankString = '';
+            let emptyCount = 0;
+            
+            for (let fileNum = 1; fileNum <= 8; fileNum++) {
+                const file = String.fromCharCode(96 + fileNum); // a, b, c, etc.
+                const square = file + rank;
+                
+                if (multiPieceSquares[square]) {
+                    // Multi-piece square - encode as special notation
+                    if (emptyCount > 0) {
+                        rankString += emptyCount;
+                        emptyCount = 0;
+                    }
+                    rankString += `[${multiPieceSquares[square].join('|')}]`;
+                } else if (position[square]) {
+                    if (emptyCount > 0) {
+                        rankString += emptyCount;
+                        emptyCount = 0;
+                    }
+                    rankString += position[square];
+                } else {
+                    emptyCount++;
+                }
+            }
+            
+            if (emptyCount > 0) {
+                rankString += emptyCount;
+            }
+            
+            if (rank > 1) rankString += '/';
+            fenWithMultiPieces += rankString;
+        }
+        
+        // For display, show regular FEN
+        const regularFen = positionBoard.fen() + ' w - - 0 1';
+        document.getElementById('fenInput').value = regularFen;
+        
+        // Store the multi-piece FEN for search
+        positionBoard._multiPieceFen = fenWithMultiPieces + ' w - - 0 1';
+    }
+    
+    // Modal event listeners
+    document.getElementById('closePieceSelection').addEventListener('click', closePieceSelectionModal);
+    document.getElementById('applyPieceSelection').addEventListener('click', applyPieceSelection);
+    document.getElementById('clearSquare').addEventListener('click', () => {
+        const checkboxes = document.querySelectorAll('#pieceSelectionModal input[type="checkbox"]');
+        checkboxes.forEach(cb => cb.checked = false);
+    });
+    
+    // Close modal when clicking outside
+    document.getElementById('pieceSelectionModal').addEventListener('click', (e) => {
+        if (e.target.id === 'pieceSelectionModal') {
+            closePieceSelectionModal();
+        }
+    });
     
     document.getElementById('clearBoard').addEventListener('click', () => {
         positionBoard.clear();
+        multiPieceSquares = {};
+        // Remove all multi-piece indicators
+        document.querySelectorAll('.multi-piece-square').forEach(el => {
+            el.classList.remove('multi-piece-square');
+        });
         updateFEN();
     });
     
     document.getElementById('startPosition').addEventListener('click', () => {
         positionBoard.start();
         positionGame.reset();
+        multiPieceSquares = {};
+        // Remove all multi-piece indicators
+        document.querySelectorAll('.multi-piece-square').forEach(el => {
+            el.classList.remove('multi-piece-square');
+        });
         document.getElementById('fenInput').value = positionGame.fen();
     });
     
@@ -905,8 +1073,13 @@ function setupPositionSearch() {
     document.getElementById('positionSearchForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        const fen = document.getElementById('fenInput').value;
+        let fen = document.getElementById('fenInput').value;
         const searchType = document.getElementById('searchType').value;
+        
+        // For pattern search with multi-pieces, use the special FEN
+        if (searchType === 'pattern' && positionBoard._multiPieceFen) {
+            fen = positionBoard._multiPieceFen;
+        }
         
         if (!fen || fen === ' w - - 0 1') {
             showMessage('Please set up a position on the board', 'error');

@@ -142,20 +142,44 @@ function searchPositionPattern(targetFen, searchType = 'exact') {
     };
   } else if (searchType === 'pattern') {
     const targetRanks = targetBoard.split('/');
-    const piecePositions = [];
+    const pieceRequirements = [];
     
     for (let rank = 0; rank < 8; rank++) {
       let file = 0;
-      for (let char of targetRanks[rank]) {
+      let i = 0;
+      
+      while (i < targetRanks[rank].length) {
+        const char = targetRanks[rank][i];
+        
         if (char >= '1' && char <= '8') {
+          // Empty squares
           file += parseInt(char);
+          i++;
+        } else if (char === '[') {
+          // Multi-piece specification [P|N|B]
+          const endBracket = targetRanks[rank].indexOf(']', i);
+          if (endBracket !== -1) {
+            const multiPieceStr = targetRanks[rank].substring(i + 1, endBracket);
+            const allowedPieces = multiPieceStr.split('|');
+            pieceRequirements.push({
+              rank: rank,
+              file: file,
+              allowedPieces: allowedPieces
+            });
+            file++;
+            i = endBracket + 1;
+          } else {
+            i++;
+          }
         } else {
-          piecePositions.push({
-            piece: char,
+          // Single piece
+          pieceRequirements.push({
             rank: rank,
-            file: file
+            file: file,
+            allowedPieces: [char]
           });
           file++;
+          i++;
         }
       }
     }
@@ -163,21 +187,27 @@ function searchPositionPattern(targetFen, searchType = 'exact') {
     return (fen) => {
       const fenRanks = fen.split(' ')[0].split('/');
       
-      for (let pos of piecePositions) {
+      for (let req of pieceRequirements) {
         let file = 0;
         let found = false;
         
-        for (let char of fenRanks[pos.rank]) {
+        for (let char of fenRanks[req.rank]) {
           if (char >= '1' && char <= '8') {
             const emptySquares = parseInt(char);
-            if (file <= pos.file && pos.file < file + emptySquares) {
+            if (file <= req.file && req.file < file + emptySquares) {
+              // This square is empty, but we need a piece here
               return false;
             }
             file += emptySquares;
           } else {
-            if (file === pos.file && char === pos.piece) {
-              found = true;
-              break;
+            if (file === req.file) {
+              // Check if this piece is in our allowed list
+              if (req.allowedPieces.includes(char)) {
+                found = true;
+                break;
+              } else {
+                return false;
+              }
             }
             file++;
           }

@@ -316,6 +316,95 @@
         </div>
     </div>
 
+    <!-- Piece Selection Modal -->
+    <div id="pieceSelectionModal" class="modal">
+        <div class="modal-content piece-selection-modal">
+            <div class="modal-header">
+                <h3>Select Pieces for Square <span id="selectedSquare"></span></h3>
+                <button class="close-btn" id="closePieceSelection">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Choose which pieces can appear on this square:</p>
+                <div class="piece-grid">
+                    <div class="piece-color-section">
+                        <h4>White Pieces</h4>
+                        <div class="piece-options">
+                            <label class="piece-option">
+                                <input type="checkbox" value="K" />
+                                <span class="piece-symbol">♔</span>
+                                <span>King</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="Q" />
+                                <span class="piece-symbol">♕</span>
+                                <span>Queen</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="R" />
+                                <span class="piece-symbol">♖</span>
+                                <span>Rook</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="B" />
+                                <span class="piece-symbol">♗</span>
+                                <span>Bishop</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="N" />
+                                <span class="piece-symbol">♘</span>
+                                <span>Knight</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="P" />
+                                <span class="piece-symbol">♙</span>
+                                <span>Pawn</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="piece-color-section">
+                        <h4>Black Pieces</h4>
+                        <div class="piece-options">
+                            <label class="piece-option">
+                                <input type="checkbox" value="k" />
+                                <span class="piece-symbol">♚</span>
+                                <span>King</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="q" />
+                                <span class="piece-symbol">♛</span>
+                                <span>Queen</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="r" />
+                                <span class="piece-symbol">♜</span>
+                                <span>Rook</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="b" />
+                                <span class="piece-symbol">♝</span>
+                                <span>Bishop</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="n" />
+                                <span class="piece-symbol">♞</span>
+                                <span>Knight</span>
+                            </label>
+                            <label class="piece-option">
+                                <input type="checkbox" value="p" />
+                                <span class="piece-symbol">♟</span>
+                                <span>Pawn</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="clearSquare" class="btn btn-secondary">Clear Square</button>
+                    <button id="applyPieceSelection" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
