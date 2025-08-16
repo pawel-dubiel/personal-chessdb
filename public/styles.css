@@ -27,6 +27,12 @@ header {
     align-items: center;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
 h1 {
     color: #2c3e50;
     font-size: 28px;
@@ -334,6 +340,255 @@ tbody tr:hover {
 
 .tab-pane.active {
     display: block;
+}
+
+.search-tab-btn {
+    flex: 1;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 14px;
+}
+
+.search-tab-btn:hover {
+    background: #e9ecef;
+}
+
+.search-tab-btn.active {
+    background: white;
+    border-bottom-color: white;
+    font-weight: 500;
+}
+
+.search-tab-pane {
+    display: none;
+}
+
+.search-tab-pane.active {
+    display: block;
+}
+
+.position-search-board {
+    margin: 10px 0;
+}
+
+.board-controls {
+    display: flex;
+    gap: 5px;
+    justify-content: center;
+    margin-top: 10px;
+}
+
+.btn-small {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    animation: fadeIn 0.3s;
+}
+
+.modal-content {
+    background-color: white;
+    margin: 50px auto;
+    padding: 0;
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    overflow-y: auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    animation: slideIn 0.3s;
+}
+
+.modal-header {
+    padding: 20px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 8px 8px 0 0;
+}
+
+.modal-header h2 {
+    margin: 0;
+    color: #2c3e50;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 28px;
+    cursor: pointer;
+    color: #999;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close-btn:hover {
+    color: #333;
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.settings-section {
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.settings-section:last-child {
+    border-bottom: none;
+}
+
+.settings-section h3 {
+    color: #495057;
+    margin-bottom: 15px;
+    font-size: 18px;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+}
+
+.stat-item {
+    background: #f8f9fa;
+    padding: 12px 15px;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.stat-item label {
+    color: #666;
+    font-size: 14px;
+}
+
+.stat-item span {
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 16px;
+}
+
+.index-actions {
+    display: grid;
+    gap: 15px;
+}
+
+.action-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.action-item button {
+    min-width: 150px;
+}
+
+.action-item p {
+    margin: 0;
+    color: #666;
+    font-size: 14px;
+}
+
+.btn-danger {
+    background: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c82333;
+}
+
+.progress-container {
+    margin-top: 20px;
+}
+
+.progress-bar {
+    height: 24px;
+    background: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3498db, #2980b9);
+    width: 0%;
+    transition: width 0.3s;
+}
+
+.progress-text {
+    text-align: center;
+    color: #666;
+    font-size: 14px;
+}
+
+.info-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.info-item {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.info-item label {
+    color: #666;
+    font-size: 14px;
+    min-width: 120px;
+}
+
+.info-item code {
+    background: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-family: monospace;
+    color: #d73502;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
 }
 
 .file-upload-area {

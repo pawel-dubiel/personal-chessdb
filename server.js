@@ -7,6 +7,7 @@ const multer = require('multer');
 const AdmZip = require('adm-zip');
 const fs = require('fs');
 const { parsePGN, searchGames, extractGameInfo } = require('./src/pgnUtils');
+const { extractAllPositions, computeZobristHash, getMaterialSignature, normalizeFEN, searchPositionPattern } = require('./src/positionIndex');
 
 const app = express();
 const PORT = 3000;
@@ -61,6 +62,20 @@ db.serialize(() => {
   `);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id INTEGER,
+      move_number INTEGER,
+      fen TEXT,
+      fen_position TEXT,
+      zobrist_hash TEXT,
+      material_signature TEXT,
+      move TEXT,
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_white ON games(white);
   `);
   db.run(`
@@ -75,7 +90,46 @@ db.serialize(() => {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_result ON games(result);
   `);
+  
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_zobrist ON positions(zobrist_hash);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_material ON positions(material_signature);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_fen_position ON positions(fen_position);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_game_move ON positions(game_id, move_number);
+  `);
 });
+
+function indexGamePositions(gameId, moves) {
+  const positions = extractAllPositions(moves);
+  const posStmt = db.prepare(`
+    INSERT INTO positions (game_id, move_number, fen, fen_position, zobrist_hash, material_signature, move)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  
+  positions.forEach(pos => {
+    const fenPosition = pos.fen.split(' ')[0];
+    const zobristHash = computeZobristHash(pos.fen);
+    const materialSig = getMaterialSignature(pos.fen);
+    
+    posStmt.run(
+      gameId,
+      pos.moveNumber,
+      pos.fen,
+      fenPosition,
+      zobristHash,
+      materialSig,
+      pos.move
+    );
+  });
+  
+  posStmt.finalize();
+}
 
 app.post('/api/games/import', (req, res) => {
   const { pgn } = req.body;
@@ -106,7 +160,12 @@ app.post('/api/games/import', (req, res) => {
           gameInfo.eco,
           gameInfo.opening,
           gameInfo.moves,
-          game
+          game,
+          function(err) {
+            if (!err && this.lastID) {
+              indexGamePositions(this.lastID, gameInfo.moves);
+            }
+          }
         );
         imported++;
       } catch (err) {
@@ -192,7 +251,12 @@ app.post('/api/games/upload', upload.single('file'), async (req, res) => {
           gameInfo.eco,
           gameInfo.opening,
           gameInfo.moves,
-          game
+          game,
+          function(err) {
+            if (!err && this.lastID) {
+              indexGamePositions(this.lastID, gameInfo.moves);
+            }
+          }
         );
         imported++;
       } catch (err) {
@@ -311,6 +375,119 @@ app.get('/api/games/search', (req, res) => {
   });
 });
 
+app.post('/api/positions/search', (req, res) => {
+  const { fen, searchType = 'exact', page = 1, pageSize = 50 } = req.body;
+  
+  if (!fen) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'FEN position is required' 
+    });
+  }
+  
+  const offset = (parseInt(page) - 1) * parseInt(pageSize);
+  const limit = parseInt(pageSize);
+  
+  try {
+    const fenPosition = fen.split(' ')[0];
+    let query, params;
+    
+    if (searchType === 'exact') {
+      query = `
+        SELECT DISTINCT g.*, p.move_number, p.move
+        FROM positions p
+        JOIN games g ON p.game_id = g.id
+        WHERE p.fen_position = ?
+        ORDER BY g.id DESC, p.move_number
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+      params = [fenPosition];
+    } else if (searchType === 'material') {
+      const materialSig = getMaterialSignature(fen);
+      query = `
+        SELECT DISTINCT g.*, p.move_number, p.move
+        FROM positions p
+        JOIN games g ON p.game_id = g.id
+        WHERE p.material_signature = ?
+        ORDER BY g.id DESC, p.move_number
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+      params = [materialSig];
+    } else if (searchType === 'zobrist') {
+      const zobristHash = computeZobristHash(fen);
+      query = `
+        SELECT DISTINCT g.*, p.move_number, p.move
+        FROM positions p
+        JOIN games g ON p.game_id = g.id
+        WHERE p.zobrist_hash = ?
+        ORDER BY g.id DESC, p.move_number
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+      params = [zobristHash];
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid search type. Use: exact, material, or zobrist' 
+      });
+    }
+    
+    const countQuery = query.replace('SELECT DISTINCT g.*, p.move_number, p.move', 'SELECT COUNT(DISTINCT g.id) as total')
+                            .replace(/LIMIT.*$/m, '');
+    const countParams = params;
+    
+    db.get(countQuery, countParams, (err, countResult) => {
+      if (err) {
+        res.status(500).json({ success: false, error: err.message });
+        return;
+      }
+      
+      const totalGames = countResult.total;
+      const totalPages = Math.ceil(totalGames / limit);
+      
+      db.all(query, params, (err, rows) => {
+        if (err) {
+          res.status(500).json({ success: false, error: err.message });
+        } else {
+          const gamesWithPositions = {};
+          rows.forEach(row => {
+            if (!gamesWithPositions[row.id]) {
+              gamesWithPositions[row.id] = {
+                ...row,
+                positions: []
+              };
+              delete gamesWithPositions[row.id].move_number;
+              delete gamesWithPositions[row.id].move;
+            }
+            gamesWithPositions[row.id].positions.push({
+              moveNumber: row.move_number,
+              move: row.move
+            });
+          });
+          
+          res.json({ 
+            success: true, 
+            games: Object.values(gamesWithPositions),
+            searchType,
+            pagination: {
+              page: parseInt(page),
+              pageSize: limit,
+              totalGames,
+              totalPages,
+              hasNext: parseInt(page) < totalPages,
+              hasPrev: parseInt(page) > 1
+            }
+          });
+        }
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 app.get('/api/games/:id', (req, res) => {
   const { id } = req.params;
   
@@ -359,6 +536,205 @@ app.get('/api/stats', (req, res) => {
             success: true,
             totalGames: row.total,
             ...stats[0]
+          });
+        }
+      });
+    }
+  });
+});
+
+app.get('/api/stats/detailed', (req, res) => {
+  const fs = require('fs');
+  const stats = {};
+  
+  // Get database file size
+  try {
+    const dbStats = fs.statSync('./chess_database.db');
+    stats.dbSize = (dbStats.size / (1024 * 1024)).toFixed(2) + ' MB';
+  } catch (err) {
+    stats.dbSize = 'Unknown';
+  }
+  
+  db.serialize(() => {
+    db.get('SELECT COUNT(*) as total FROM games', (err, row) => {
+      stats.totalGames = err ? 0 : row.total;
+      
+      db.get('SELECT COUNT(*) as total FROM positions', (err, row) => {
+        stats.totalPositions = err ? 0 : row.total;
+        
+        db.get('SELECT COUNT(DISTINCT fen_position) as total FROM positions', (err, row) => {
+          stats.uniquePositions = err ? 0 : row.total;
+          
+          db.get('SELECT COUNT(DISTINCT game_id) as indexed FROM positions', (err, row) => {
+            const indexedGames = err ? 0 : row.indexed;
+            stats.indexedGames = indexedGames;
+            stats.indexCoverage = stats.totalGames > 0 
+              ? ((indexedGames / stats.totalGames) * 100).toFixed(1) + '%'
+              : '0%';
+            
+            db.get(`SELECT MAX(id) as lastId, 
+                    datetime(id / 1000000 + 2440587.5, 'unixepoch') as approxTime 
+                    FROM positions`, (err, row) => {
+              stats.lastIndexUpdate = row && row.lastId ? 'Recently' : 'Never';
+              
+              res.json({
+                success: true,
+                ...stats
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+app.post('/api/index/rebuild', (req, res) => {
+  const { extractAllPositions, computeZobristHash, getMaterialSignature } = require('./src/positionIndex');
+  
+  // First clear existing positions
+  db.run('DELETE FROM positions', (err) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    
+    db.all('SELECT id, moves FROM games', (err, games) => {
+      if (err) {
+        return res.status(500).json({ success: false, error: err.message });
+      }
+      
+      let processed = 0;
+      let errors = 0;
+      const total = games.length;
+      
+      res.json({
+        success: true,
+        message: 'Index rebuild started',
+        total: total
+      });
+      
+      // Process games in batches
+      games.forEach((game) => {
+        try {
+          const positions = extractAllPositions(game.moves);
+          const stmt = db.prepare(`
+            INSERT INTO positions (game_id, move_number, fen, fen_position, zobrist_hash, material_signature, move)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `);
+          
+          positions.forEach(pos => {
+            const fenPosition = pos.fen.split(' ')[0];
+            const zobristHash = computeZobristHash(pos.fen);
+            const materialSig = getMaterialSignature(pos.fen);
+            
+            stmt.run(
+              game.id,
+              pos.moveNumber,
+              pos.fen,
+              fenPosition,
+              zobristHash,
+              materialSig,
+              pos.move
+            );
+          });
+          
+          stmt.finalize();
+          processed++;
+        } catch (error) {
+          errors++;
+        }
+      });
+    });
+  });
+});
+
+app.post('/api/index/clear', (req, res) => {
+  db.run('DELETE FROM positions', function(err) {
+    if (err) {
+      res.status(500).json({ success: false, error: err.message });
+    } else {
+      res.json({ 
+        success: true, 
+        message: 'Position index cleared',
+        deleted: this.changes
+      });
+    }
+  });
+});
+
+app.post('/api/index/fix', (req, res) => {
+  const { extractAllPositions, computeZobristHash, getMaterialSignature } = require('./src/positionIndex');
+  
+  db.all(`
+    SELECT g.id, g.moves 
+    FROM games g 
+    LEFT JOIN positions p ON g.id = p.game_id 
+    WHERE p.game_id IS NULL
+  `, (err, games) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    
+    if (games.length === 0) {
+      return res.json({
+        success: true,
+        message: 'All games are already indexed',
+        fixed: 0
+      });
+    }
+    
+    let fixed = 0;
+    games.forEach((game) => {
+      try {
+        const positions = extractAllPositions(game.moves);
+        const stmt = db.prepare(`
+          INSERT INTO positions (game_id, move_number, fen, fen_position, zobrist_hash, material_signature, move)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        
+        positions.forEach(pos => {
+          const fenPosition = pos.fen.split(' ')[0];
+          const zobristHash = computeZobristHash(pos.fen);
+          const materialSig = getMaterialSignature(pos.fen);
+          
+          stmt.run(
+            game.id,
+            pos.moveNumber,
+            pos.fen,
+            fenPosition,
+            zobristHash,
+            materialSig,
+            pos.move
+          );
+        });
+        
+        stmt.finalize();
+        fixed++;
+      } catch (error) {
+        console.error(`Error indexing game ${game.id}:`, error);
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: `Fixed index for ${fixed} games`,
+      fixed: fixed
+    });
+  });
+});
+
+app.post('/api/index/optimize', (req, res) => {
+  db.run('VACUUM', (err) => {
+    if (err) {
+      res.status(500).json({ success: false, error: err.message });
+    } else {
+      db.run('ANALYZE', (err) => {
+        if (err) {
+          res.status(500).json({ success: false, error: err.message });
+        } else {
+          res.json({ 
+            success: true, 
+            message: 'Database optimized successfully'
           });
         }
       });

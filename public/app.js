@@ -37,6 +37,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
     setupPagination();
     setupStockfish();
+    setupPositionSearch();
+    setupSettings();
     
     // Add guess mode toggle
     document.getElementById('toggleGuessMode').addEventListener('click', toggleGuessMode);
@@ -340,7 +342,7 @@ function initializeBoard() {
             console.log('Mouse out square:', square, 'piece:', piece);
         },
         // Use local chess piece images
-        pieceTheme: './img/chesspieces/{piece}.png',
+        pieceTheme: 'img/chesspieces/wikipedia/{piece}.png',
         moveSpeed: 200,
         snapbackSpeed: 100,
         snapSpeed: 100,
@@ -838,6 +840,287 @@ function setupTabs() {
             document.getElementById(`${targetTab}Tab`).classList.add('active');
         });
     });
+    
+    const searchTabButtons = document.querySelectorAll('.search-tab-btn');
+    const searchTabPanes = document.querySelectorAll('.search-tab-pane');
+    
+    searchTabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const targetTab = button.dataset.searchTab;
+            
+            searchTabButtons.forEach(btn => btn.classList.remove('active'));
+            searchTabPanes.forEach(pane => pane.classList.remove('active'));
+            
+            button.classList.add('active');
+            document.getElementById(`${targetTab}SearchTab`).classList.add('active');
+        });
+    });
+}
+
+function setupPositionSearch() {
+    let positionBoard = null;
+    let positionGame = new Chess();
+    
+    const boardConfig = {
+        draggable: true,
+        dropOffBoard: 'trash',
+        sparePieces: true,
+        pieceTheme: 'img/chesspieces/wikipedia/{piece}.png',
+        onDragStart: function (source, piece, position, orientation) {
+            return true;
+        },
+        onDrop: function (source, target, piece, newPos, oldPos, orientation) {
+            updateFEN();
+        },
+        onSnapEnd: function () {
+            updateFEN();
+        }
+    };
+    
+    positionBoard = Chessboard('positionBoard', boardConfig);
+    
+    function updateFEN() {
+        const fen = positionBoard.fen() + ' w - - 0 1';
+        document.getElementById('fenInput').value = fen;
+        positionGame.load(fen);
+    }
+    
+    document.getElementById('clearBoard').addEventListener('click', () => {
+        positionBoard.clear();
+        updateFEN();
+    });
+    
+    document.getElementById('startPosition').addEventListener('click', () => {
+        positionBoard.start();
+        positionGame.reset();
+        document.getElementById('fenInput').value = positionGame.fen();
+    });
+    
+    document.getElementById('flipBoard').addEventListener('click', () => {
+        positionBoard.flip();
+    });
+    
+    document.getElementById('positionSearchForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const fen = document.getElementById('fenInput').value;
+        const searchType = document.getElementById('searchType').value;
+        
+        if (!fen || fen === ' w - - 0 1') {
+            showMessage('Please set up a position on the board', 'error');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/positions/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    fen: fen,
+                    searchType: searchType,
+                    page: currentPage,
+                    pageSize: currentPageSize
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                displayGames(data.games);
+                updatePagination(data.pagination);
+                showMessage(`Found ${data.pagination.totalGames} games with this position`, 'success');
+            } else {
+                showMessage(data.error || 'Position search failed', 'error');
+            }
+        } catch (error) {
+            showMessage('Error searching positions: ' + error.message, 'error');
+        }
+    });
+    
+    positionBoard.start();
+    positionGame.reset();
+    document.getElementById('fenInput').value = positionGame.fen();
+}
+
+function setupSettings() {
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsModal = document.getElementById('settingsModal');
+    const closeSettings = document.getElementById('closeSettings');
+    
+    settingsBtn.addEventListener('click', () => {
+        settingsModal.style.display = 'block';
+        loadDetailedStats();
+    });
+    
+    closeSettings.addEventListener('click', () => {
+        settingsModal.style.display = 'none';
+    });
+    
+    // Close modal when clicking outside
+    settingsModal.addEventListener('click', (e) => {
+        if (e.target === settingsModal) {
+            settingsModal.style.display = 'none';
+        }
+    });
+    
+    // Set up index management buttons
+    document.getElementById('rebuildIndex').addEventListener('click', rebuildIndex);
+    document.getElementById('clearIndex').addEventListener('click', clearIndex);
+    document.getElementById('fixIndex').addEventListener('click', fixIndex);
+    document.getElementById('optimizeDb').addEventListener('click', optimizeDatabase);
+}
+
+async function loadDetailedStats() {
+    try {
+        const response = await fetch('/api/stats/detailed');
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('statTotalGames').textContent = data.totalGames.toLocaleString();
+            document.getElementById('statTotalPositions').textContent = data.totalPositions.toLocaleString();
+            document.getElementById('statUniquePositions').textContent = data.uniquePositions.toLocaleString();
+            document.getElementById('statDbSize').textContent = data.dbSize;
+            document.getElementById('statIndexCoverage').textContent = data.indexCoverage;
+            document.getElementById('statLastIndexUpdate').textContent = data.lastIndexUpdate;
+        }
+    } catch (error) {
+        showMessage('Error loading detailed stats: ' + error.message, 'error');
+    }
+}
+
+async function rebuildIndex() {
+    if (!confirm('Are you sure you want to rebuild the entire position index? This may take several minutes and will delete all existing position data.')) {
+        return;
+    }
+    
+    const button = document.getElementById('rebuildIndex');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '🔄 Rebuilding...';
+    
+    showProgress('Rebuilding position index...', 0);
+    
+    try {
+        const response = await fetch('/api/index/rebuild', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage(`Index rebuild started for ${data.total} games`, 'success');
+            // Refresh stats after a delay
+            setTimeout(() => {
+                loadDetailedStats();
+                hideProgress();
+            }, 5000);
+        } else {
+            showMessage(data.error || 'Failed to rebuild index', 'error');
+        }
+    } catch (error) {
+        showMessage('Error rebuilding index: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+        hideProgress();
+    }
+}
+
+async function clearIndex() {
+    if (!confirm('Are you sure you want to clear the position index? This will remove all position search capability until you rebuild the index.')) {
+        return;
+    }
+    
+    const button = document.getElementById('clearIndex');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '🗑️ Clearing...';
+    
+    try {
+        const response = await fetch('/api/index/clear', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage(`Position index cleared (${data.deleted} records deleted)`, 'success');
+            loadDetailedStats();
+        } else {
+            showMessage(data.error || 'Failed to clear index', 'error');
+        }
+    } catch (error) {
+        showMessage('Error clearing index: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
+}
+
+async function fixIndex() {
+    const button = document.getElementById('fixIndex');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '🔧 Fixing...';
+    
+    try {
+        const response = await fetch('/api/index/fix', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage(data.message, 'success');
+            loadDetailedStats();
+        } else {
+            showMessage(data.error || 'Failed to fix index', 'error');
+        }
+    } catch (error) {
+        showMessage('Error fixing index: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
+}
+
+async function optimizeDatabase() {
+    const button = document.getElementById('optimizeDb');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '⚡ Optimizing...';
+    
+    try {
+        const response = await fetch('/api/index/optimize', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage(data.message, 'success');
+            loadDetailedStats();
+        } else {
+            showMessage(data.error || 'Failed to optimize database', 'error');
+        }
+    } catch (error) {
+        showMessage('Error optimizing database: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
+}
+
+function showProgress(text, percent) {
+    const container = document.getElementById('indexProgress');
+    const fill = document.getElementById('indexProgressFill');
+    const textElement = document.getElementById('indexProgressText');
+    
+    container.style.display = 'block';
+    fill.style.width = percent + '%';
+    textElement.textContent = text;
+}
+
+function hideProgress() {
+    document.getElementById('indexProgress').style.display = 'none';
 }
 
 function setupFileUpload() {

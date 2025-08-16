@@ -11,10 +11,13 @@
     <div class="container">
         <header>
             <h1>Chess Database</h1>
-            <div class="stats" id="stats">
-                <span>Total Games: <strong id="totalGames">0</strong></span>
-                <span>Players: <strong id="totalPlayers">0</strong></span>
-                <span>Events: <strong id="totalEvents">0</strong></span>
+            <div class="header-actions">
+                <div class="stats" id="stats">
+                    <span>Total Games: <strong id="totalGames">0</strong></span>
+                    <span>Players: <strong id="totalPlayers">0</strong></span>
+                    <span>Events: <strong id="totalEvents">0</strong></span>
+                </div>
+                <button id="settingsBtn" class="btn btn-secondary">⚙️ Settings</button>
             </div>
         </header>
 
@@ -62,21 +65,50 @@
 
                 <div class="section">
                     <h2>Search Games</h2>
-                    <form id="searchForm">
-                        <input type="text" id="whitePlayer" placeholder="White player">
-                        <input type="text" id="blackPlayer" placeholder="Black player">
-                        <input type="text" id="opening" placeholder="Opening">
-                        <input type="text" id="eco" placeholder="ECO Code">
-                        <select id="result">
-                            <option value="">Any Result</option>
-                            <option value="1-0">White wins</option>
-                            <option value="0-1">Black wins</option>
-                            <option value="1/2-1/2">Draw</option>
-                        </select>
-                        <input type="date" id="dateFrom" placeholder="Date from">
-                        <input type="date" id="dateTo" placeholder="Date to">
-                        <button type="submit" class="btn btn-secondary">Search</button>
-                    </form>
+                    <div class="search-tabs">
+                        <div class="tab-buttons">
+                            <button class="search-tab-btn active" data-search-tab="standard">Standard</button>
+                            <button class="search-tab-btn" data-search-tab="position">Position</button>
+                        </div>
+                        <div class="search-tab-content">
+                            <div id="standardSearchTab" class="search-tab-pane active">
+                                <form id="searchForm">
+                                    <input type="text" id="whitePlayer" placeholder="White player">
+                                    <input type="text" id="blackPlayer" placeholder="Black player">
+                                    <input type="text" id="opening" placeholder="Opening">
+                                    <input type="text" id="eco" placeholder="ECO Code">
+                                    <select id="result">
+                                        <option value="">Any Result</option>
+                                        <option value="1-0">White wins</option>
+                                        <option value="0-1">Black wins</option>
+                                        <option value="1/2-1/2">Draw</option>
+                                    </select>
+                                    <input type="date" id="dateFrom" placeholder="Date from">
+                                    <input type="date" id="dateTo" placeholder="Date to">
+                                    <button type="submit" class="btn btn-secondary">Search</button>
+                                </form>
+                            </div>
+                            <div id="positionSearchTab" class="search-tab-pane">
+                                <form id="positionSearchForm">
+                                    <div class="position-search-board">
+                                        <div id="positionBoard" style="width: 280px; margin: 10px auto;"></div>
+                                        <div class="board-controls">
+                                            <button type="button" class="btn btn-small" id="clearBoard">Clear</button>
+                                            <button type="button" class="btn btn-small" id="startPosition">Start Pos</button>
+                                            <button type="button" class="btn btn-small" id="flipBoard">Flip</button>
+                                        </div>
+                                    </div>
+                                    <input type="text" id="fenInput" placeholder="FEN position (auto-filled from board)" readonly>
+                                    <select id="searchType">
+                                        <option value="exact">Exact Position</option>
+                                        <option value="material">Same Material</option>
+                                        <option value="zobrist">Similar Structure</option>
+                                    </select>
+                                    <button type="submit" class="btn btn-secondary">Search Position</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </aside>
 
@@ -186,6 +218,93 @@
                     </div>
                 </div>
             </main>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Database Settings & Management</h2>
+                <button class="close-btn" id="closeSettings">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <h3>Database Statistics</h3>
+                    <div class="stats-grid" id="dbStats">
+                        <div class="stat-item">
+                            <label>Total Games:</label>
+                            <span id="statTotalGames">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <label>Total Positions Indexed:</label>
+                            <span id="statTotalPositions">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <label>Unique Positions:</label>
+                            <span id="statUniquePositions">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <label>Database Size:</label>
+                            <span id="statDbSize">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <label>Index Coverage:</label>
+                            <span id="statIndexCoverage">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <label>Last Index Update:</label>
+                            <span id="statLastIndexUpdate">-</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h3>Position Index Management</h3>
+                    <div class="index-actions">
+                        <div class="action-item">
+                            <button id="rebuildIndex" class="btn btn-primary">🔄 Rebuild Index</button>
+                            <p>Rebuild position index for all games (may take several minutes)</p>
+                        </div>
+                        <div class="action-item">
+                            <button id="clearIndex" class="btn btn-danger">🗑️ Clear Index</button>
+                            <p>Remove all position index data (games will remain)</p>
+                        </div>
+                        <div class="action-item">
+                            <button id="fixIndex" class="btn btn-secondary">🔧 Fix Missing Indexes</button>
+                            <p>Index positions for games that are missing from the index</p>
+                        </div>
+                        <div class="action-item">
+                            <button id="optimizeDb" class="btn btn-secondary">⚡ Optimize Database</button>
+                            <p>Run VACUUM to optimize database performance</p>
+                        </div>
+                    </div>
+                    <div id="indexProgress" class="progress-container" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="indexProgressFill"></div>
+                        </div>
+                        <div class="progress-text" id="indexProgressText">Processing...</div>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h3>Database Information</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label>Database Path:</label>
+                            <code>chess_database.db</code>
+                        </div>
+                        <div class="info-item">
+                            <label>Index Tables:</label>
+                            <code>positions</code>
+                        </div>
+                        <div class="info-item">
+                            <label>Index Types:</label>
+                            <span>FEN, Zobrist Hash, Material Signature</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
