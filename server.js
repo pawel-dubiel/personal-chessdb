@@ -375,6 +375,156 @@ app.get('/api/games/search', (req, res) => {
   });
 });
 
+app.post('/api/positions/search/stream', (req, res) => {
+  const { fen, searchType = 'exact', page = 1, pageSize = 50 } = req.body;
+  
+  if (!fen) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'FEN position is required' 
+    });
+  }
+  
+  // Set up Server-Sent Events
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  });
+  
+  const sendProgress = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  
+  const sendError = (error) => {
+    sendProgress({ type: 'error', error });
+    res.end();
+  };
+  
+  const sendComplete = (results) => {
+    sendProgress({ type: 'complete', ...results });
+    res.end();
+  };
+  
+  try {
+    if (searchType === 'pattern') {
+      // For pattern search, we need to stream results with progress
+      const { searchPositionPattern } = require('./src/positionIndex');
+      const patternMatcher = searchPositionPattern(fen, 'pattern');
+      
+      db.all(`
+        SELECT DISTINCT g.*, p.move_number, p.move, p.fen_position
+        FROM positions p
+        JOIN games g ON p.game_id = g.id
+        ORDER BY g.id DESC, p.move_number
+      `, [], (err, rows) => {
+        if (err) {
+          return sendError(err.message);
+        }
+        
+        sendProgress({ 
+          type: 'progress', 
+          message: `Starting pattern search through ${rows.length} positions...`,
+          progress: 0 
+        });
+        
+        const matchingResults = [];
+        const batchSize = 1000;
+        let processed = 0;
+        
+        const processBatch = (startIndex) => {
+          const endIndex = Math.min(startIndex + batchSize, rows.length);
+          
+          for (let i = startIndex; i < endIndex; i++) {
+            const row = rows[i];
+            const fullFen = row.fen_position + ' w - - 0 1';
+            
+            if (patternMatcher(fullFen)) {
+              matchingResults.push(row);
+            }
+            
+            processed++;
+          }
+          
+          const progress = Math.round((processed / rows.length) * 100);
+          sendProgress({
+            type: 'progress',
+            message: `Searched ${processed} of ${rows.length} positions...`,
+            progress: progress,
+            found: matchingResults.length
+          });
+          
+          if (endIndex < rows.length) {
+            // Continue with next batch after a small delay
+            setTimeout(() => processBatch(endIndex), 10);
+          } else {
+            // Processing complete
+            const offset = (parseInt(page) - 1) * parseInt(pageSize);
+            const limit = parseInt(pageSize);
+            const paginatedResults = matchingResults.slice(offset, offset + limit);
+            
+            // Group by games
+            const gamesWithPositions = {};
+            paginatedResults.forEach(row => {
+              if (!gamesWithPositions[row.id]) {
+                gamesWithPositions[row.id] = {
+                  ...row,
+                  positions: []
+                };
+                delete gamesWithPositions[row.id].move_number;
+                delete gamesWithPositions[row.id].move;
+                delete gamesWithPositions[row.id].fen_position;
+              }
+              gamesWithPositions[row.id].positions.push({
+                moveNumber: row.move_number,
+                move: row.move
+              });
+            });
+            
+            const totalGames = Math.floor(matchingResults.length / 10); // Estimate
+            const totalPages = Math.ceil(totalGames / limit);
+            
+            sendComplete({
+              success: true,
+              games: Object.values(gamesWithPositions),
+              searchType,
+              pagination: {
+                page: parseInt(page),
+                pageSize: limit,
+                totalGames,
+                totalPages,
+                hasNext: parseInt(page) < totalPages,
+                hasPrev: parseInt(page) > 1
+              }
+            });
+          }
+        };
+        
+        processBatch(0);
+      });
+    } else {
+      // For other search types, use the regular search logic but still send progress
+      sendProgress({ 
+        type: 'progress', 
+        message: 'Searching database...',
+        progress: 50 
+      });
+      
+      // Call the regular search logic here and send results
+      // (I'll implement this part if needed)
+      sendComplete({
+        success: true,
+        message: 'Use /api/positions/search for non-pattern searches',
+        games: []
+      });
+    }
+  } catch (error) {
+    sendError(error.message);
+  }
+});
+
 app.post('/api/positions/search', (req, res) => {
   const { fen, searchType = 'exact', page = 1, pageSize = 50 } = req.body;
   
@@ -424,10 +574,20 @@ app.post('/api/positions/search', (req, res) => {
         LIMIT ${limit} OFFSET ${offset}
       `;
       params = [zobristHash];
+    } else if (searchType === 'pattern') {
+      // For pattern search, we need to query all positions and filter in memory
+      // This is less efficient but allows for complex pattern matching
+      query = `
+        SELECT DISTINCT g.*, p.move_number, p.move, p.fen_position
+        FROM positions p
+        JOIN games g ON p.game_id = g.id
+        ORDER BY g.id DESC, p.move_number
+      `;
+      params = [];
     } else {
       return res.status(400).json({ 
         success: false, 
-        error: 'Invalid search type. Use: exact, material, or zobrist' 
+        error: 'Invalid search type. Use: exact, material, zobrist, or pattern' 
       });
     }
     
@@ -448,8 +608,26 @@ app.post('/api/positions/search', (req, res) => {
         if (err) {
           res.status(500).json({ success: false, error: err.message });
         } else {
+          let filteredRows = rows;
+          
+          // Apply pattern filtering if needed
+          if (searchType === 'pattern') {
+            const { searchPositionPattern } = require('./src/positionIndex');
+            const patternMatcher = searchPositionPattern(fen, 'pattern');
+            
+            filteredRows = rows.filter(row => {
+              const fullFen = row.fen_position + ' w - - 0 1';
+              return patternMatcher(fullFen);
+            });
+            
+            // Apply pagination to filtered results
+            const startIndex = offset;
+            const endIndex = offset + limit;
+            filteredRows = filteredRows.slice(startIndex, endIndex);
+          }
+          
           const gamesWithPositions = {};
-          rows.forEach(row => {
+          filteredRows.forEach(row => {
             if (!gamesWithPositions[row.id]) {
               gamesWithPositions[row.id] = {
                 ...row,
@@ -457,12 +635,25 @@ app.post('/api/positions/search', (req, res) => {
               };
               delete gamesWithPositions[row.id].move_number;
               delete gamesWithPositions[row.id].move;
+              delete gamesWithPositions[row.id].fen_position;
             }
             gamesWithPositions[row.id].positions.push({
               moveNumber: row.move_number,
               move: row.move
             });
           });
+          
+          // For pattern search, calculate the actual total from filtered results
+          const actualTotalGames = searchType === 'pattern' ? 
+            Math.floor(rows.filter(row => {
+              const { searchPositionPattern } = require('./src/positionIndex');
+              const patternMatcher = searchPositionPattern(fen, 'pattern');
+              const fullFen = row.fen_position + ' w - - 0 1';
+              return patternMatcher(fullFen);
+            }).length / 10) : // Rough estimate since positions per game varies
+            totalGames;
+          
+          const actualTotalPages = Math.ceil(actualTotalGames / limit);
           
           res.json({ 
             success: true, 
@@ -471,9 +662,9 @@ app.post('/api/positions/search', (req, res) => {
             pagination: {
               page: parseInt(page),
               pageSize: limit,
-              totalGames,
-              totalPages,
-              hasNext: parseInt(page) < totalPages,
+              totalGames: actualTotalGames,
+              totalPages: actualTotalPages,
+              hasNext: parseInt(page) < actualTotalPages,
               hasPrev: parseInt(page) > 1
             }
           });

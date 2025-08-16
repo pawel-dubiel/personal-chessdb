@@ -900,6 +900,8 @@ function setupPositionSearch() {
         positionBoard.flip();
     });
     
+    let currentSearchController = null;
+    
     document.getElementById('positionSearchForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         
@@ -911,8 +913,37 @@ function setupPositionSearch() {
             return;
         }
         
+        // Show progress UI
+        showPositionSearchProgress();
+        
         try {
-            const response = await fetch('/api/positions/search', {
+            if (searchType === 'pattern') {
+                // Use streaming API for pattern search
+                await performStreamingSearch(fen, searchType);
+            } else {
+                // Use regular API for other searches
+                await performRegularSearch(fen, searchType);
+            }
+        } catch (error) {
+            showMessage('Error searching positions: ' + error.message, 'error');
+            hidePositionSearchProgress();
+        }
+    });
+    
+    document.getElementById('cancelPositionSearch').addEventListener('click', () => {
+        if (currentSearchController) {
+            currentSearchController.abort();
+            currentSearchController = null;
+        }
+        hidePositionSearchProgress();
+        showMessage('Search cancelled', 'info');
+    });
+    
+    async function performStreamingSearch(fen, searchType) {
+        currentSearchController = new AbortController();
+        
+        try {
+            const response = await fetch('/api/positions/search/stream', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -922,22 +953,105 @@ function setupPositionSearch() {
                     searchType: searchType,
                     page: currentPage,
                     pageSize: currentPageSize
-                })
+                }),
+                signal: currentSearchController.signal
             });
             
-            const data = await response.json();
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
             
-            if (data.success) {
-                displayGames(data.games);
-                updatePagination(data.pagination);
-                showMessage(`Found ${data.pagination.totalGames} games with this position`, 'success');
-            } else {
-                showMessage(data.error || 'Position search failed', 'error');
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+                
+                for (let line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            
+                            if (data.type === 'progress') {
+                                updatePositionSearchProgress(data.progress, data.message, data.found || 0);
+                            } else if (data.type === 'complete') {
+                                if (data.success) {
+                                    displayGames(data.games);
+                                    updatePagination(data.pagination);
+                                    showMessage(`Found ${data.pagination.totalGames} games with this pattern`, 'success');
+                                } else {
+                                    showMessage(data.error || 'Search failed', 'error');
+                                }
+                                hidePositionSearchProgress();
+                                break;
+                            } else if (data.type === 'error') {
+                                showMessage(data.error || 'Search failed', 'error');
+                                hidePositionSearchProgress();
+                                break;
+                            }
+                        } catch (e) {
+                            // Ignore parsing errors for partial chunks
+                        }
+                    }
+                }
             }
         } catch (error) {
-            showMessage('Error searching positions: ' + error.message, 'error');
+            if (error.name !== 'AbortError') {
+                showMessage('Error during streaming search: ' + error.message, 'error');
+            }
+            hidePositionSearchProgress();
         }
-    });
+        
+        currentSearchController = null;
+    }
+    
+    async function performRegularSearch(fen, searchType) {
+        updatePositionSearchProgress(50, 'Searching database...');
+        
+        const response = await fetch('/api/positions/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                fen: fen,
+                searchType: searchType,
+                page: currentPage,
+                pageSize: currentPageSize
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            displayGames(data.games);
+            updatePagination(data.pagination);
+            showMessage(`Found ${data.pagination.totalGames} games with this position`, 'success');
+        } else {
+            showMessage(data.error || 'Position search failed', 'error');
+        }
+        
+        hidePositionSearchProgress();
+    }
+    
+    function showPositionSearchProgress() {
+        document.getElementById('positionSearchBtn').disabled = true;
+        document.getElementById('positionSearchProgress').style.display = 'block';
+        updatePositionSearchProgress(0, 'Starting search...');
+    }
+    
+    function hidePositionSearchProgress() {
+        document.getElementById('positionSearchBtn').disabled = false;
+        document.getElementById('positionSearchProgress').style.display = 'none';
+    }
+    
+    function updatePositionSearchProgress(percent, message, found = 0) {
+        const fill = document.getElementById('positionSearchProgressFill');
+        const text = document.getElementById('positionSearchProgressText');
+        
+        fill.style.width = percent + '%';
+        text.textContent = found > 0 ? `${message} (${found} matches found)` : message;
+    }
     
     positionBoard.start();
     positionGame.reset();

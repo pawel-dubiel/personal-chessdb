@@ -101,10 +101,18 @@
                                     <input type="text" id="fenInput" placeholder="FEN position (auto-filled from board)" readonly>
                                     <select id="searchType">
                                         <option value="exact">Exact Position</option>
+                                        <option value="pattern">Piece Pattern</option>
                                         <option value="material">Same Material</option>
                                         <option value="zobrist">Similar Structure</option>
                                     </select>
-                                    <button type="submit" class="btn btn-secondary">Search Position</button>
+                                    <button type="submit" class="btn btn-secondary" id="positionSearchBtn">Search Position</button>
+                                    <div id="positionSearchProgress" class="progress-container" style="display: none;">
+                                        <div class="progress-bar">
+                                            <div class="progress-fill" id="positionSearchProgressFill"></div>
+                                        </div>
+                                        <div class="progress-text" id="positionSearchProgressText">Searching...</div>
+                                        <button type="button" class="btn btn-small" id="cancelPositionSearch">Cancel</button>
+                                    </div>
                                 </form>
                             </div>
                         </div>

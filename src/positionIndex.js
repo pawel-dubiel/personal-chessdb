@@ -193,10 +193,75 @@ function searchPositionPattern(targetFen, searchType = 'exact') {
   return () => false;
 }
 
+function extractPatternFromPosition(fen) {
+  // Extract only non-empty squares as patterns
+  const board = fen.split(' ')[0];
+  const ranks = board.split('/');
+  const patterns = [];
+  
+  for (let rank = 0; rank < 8; rank++) {
+    let file = 0;
+    for (let char of ranks[rank]) {
+      if (char >= '1' && char <= '8') {
+        file += parseInt(char);
+      } else {
+        const square = String.fromCharCode(97 + file) + (8 - rank);
+        patterns.push(`${char}@${square}`);
+        file++;
+      }
+    }
+  }
+  
+  return patterns.sort().join(',');
+}
+
+function createPatternFromPieces(pieces) {
+  // pieces is an array like [{ piece: 'P', square: 'd4' }, { piece: 'K', square: 'e1' }]
+  const fenBoard = Array(8).fill(null).map(() => Array(8).fill(null));
+  
+  for (let { piece, square } of pieces) {
+    const file = square.charCodeAt(0) - 97; // a=0, b=1, etc.
+    const rank = 8 - parseInt(square[1]); // 8=0, 7=1, etc.
+    
+    if (rank >= 0 && rank < 8 && file >= 0 && file < 8) {
+      fenBoard[rank][file] = piece;
+    }
+  }
+  
+  // Convert to FEN format
+  const fenRanks = [];
+  for (let rank = 0; rank < 8; rank++) {
+    let fenRank = '';
+    let emptyCount = 0;
+    
+    for (let file = 0; file < 8; file++) {
+      if (fenBoard[rank][file]) {
+        if (emptyCount > 0) {
+          fenRank += emptyCount;
+          emptyCount = 0;
+        }
+        fenRank += fenBoard[rank][file];
+      } else {
+        emptyCount++;
+      }
+    }
+    
+    if (emptyCount > 0) {
+      fenRank += emptyCount;
+    }
+    
+    fenRanks.push(fenRank);
+  }
+  
+  return fenRanks.join('/') + ' w - - 0 1';
+}
+
 module.exports = {
   computeZobristHash,
   getMaterialSignature,
   normalizeFEN,
   extractAllPositions,
-  searchPositionPattern
+  searchPositionPattern,
+  extractPatternFromPosition,
+  createPatternFromPieces
 };
