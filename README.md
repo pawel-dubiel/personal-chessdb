@@ -9,6 +9,7 @@
 [![SQLite](https://img.shields.io/badge/SQLite-Database-lightgrey.svg)](https://sqlite.org/)
 [![Tests](https://img.shields.io/badge/Tests-33%2F33%20Passing-brightgreen.svg)](#testing--quality-assurance)
 [![Demo](https://img.shields.io/badge/Demo-Interactive-orange.svg)](#quick-start)
+[![Developed with Claude](https://img.shields.io/badge/Developed%20with-Claude-purple.svg)](https://claude.ai)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Chess Database Pro is a comprehensive chess game management and analysis tool that allows you to import, search, and analyze chess games with sophisticated position-based queries. Built with modern web technologies, it provides professional chess database functionality directly in your browser.
@@ -335,19 +336,37 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔮 Roadmap
 
-### Version 1.0 (Planned)
-- [ ] **Opening Tree Analysis**: Interactive opening explorer
-- [ ] **Engine Integration**: Stockfish analysis integration
-- [ ] **Tournament Management**: Tournament bracket and pairing support
-- [ ] **Cloud Sync**: Multi-device database synchronization
-- [ ] **Mobile App**: Native iOS/Android applications
+> **📋 [Complete Feature Roadmap](docs/features-roadmap.md)**: Detailed breakdown of all planned features
 
-### Version 0.1.x (Current)
-- [x] **Advanced Position Search**: Multi-piece OR logic
-- [x] **Real-time Progress**: Streaming search with progress
-- [x] **Database Management**: Admin tools
-- [x] **Comprehensive Testing**: Full test coverage
-- [x] **Performance Optimization**: Sub-second search times
+### Phase 1: Essential Features (v0.2.x)
+- [ ] **Interactive Game Viewer**: Move-by-move replay with annotations
+- [ ] **Advanced Game Search**: Filter by ELO, date, opening, events
+- [ ] **Game Collections**: Organize games into folders and tags
+- [ ] **Move Annotations**: Display comments, variations, and symbols
+
+### Phase 2: Professional Features (v0.3.x)
+- [ ] **Opening Tree Explorer**: Move statistics and win rates
+- [ ] **Advanced Position Search**: Pawn structures and tactical patterns
+- [ ] **Player Statistics**: Head-to-head records and performance tracking
+- [ ] **Tournament Reports**: Cross-tables and analysis
+
+### Phase 3: Analysis & Training (v0.4.x)
+- [ ] **Engine Integration**: Stockfish analysis and evaluation
+- [ ] **Training Modules**: Tactical puzzles and position training
+- [ ] **Import Enhancements**: Lichess, Chess.com game import
+- [ ] **Automated Analysis**: Blunder detection and game insights
+
+### Phase 4: Advanced Tools (v0.5.x)
+- [ ] **Tournament Management**: Swiss pairing and live tournaments
+- [ ] **Collaboration Features**: Multi-user databases and sharing
+- [ ] **Mobile Applications**: iOS and Android apps
+- [ ] **Advanced Analytics**: Playing style analysis
+
+### Current Version (v0.1.x) ✅
+- [x] **Core Database**: PGN import, SQLite storage, bulk processing
+- [x] **Position Search**: Multi-piece patterns, exact matching, streaming
+- [x] **Web Interface**: Responsive design, drag-drop, progress tracking
+- [x] **API & Testing**: REST endpoints, comprehensive test coverage
 
 ---
 
