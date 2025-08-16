@@ -4,10 +4,20 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Database
+# Database files
+# SQLite database files and temporary files
 *.db
 *.sqlite
 *.sqlite3
+# SQLite journal, WAL (Write-Ahead Logging), and shared memory files
+*.db-journal
+*.db-wal
+*.db-shm
+*-journal
+*-wal
+*-shm
+# Specific chess database files
+chess_database.*
 
 # Upload directory
 uploads/
