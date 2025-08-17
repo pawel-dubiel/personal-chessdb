@@ -61,3 +61,7 @@ Desktop.ini
 # Package manager locks (optional - you may want to keep package-lock.json)
 # package-lock.json
 # yarn.lock
+
+# AI tool directories
+.crush/
+"

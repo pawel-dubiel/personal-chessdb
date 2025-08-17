@@ -10,7 +10,8 @@ const { parsePGN, searchGames, extractGameInfo } = require('./src/pgnUtils');
 const { extractAllPositions, computeZobristHash, getMaterialSignature, normalizeFEN, searchPositionPattern } = require('./src/positionIndex');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const HOST = process.env.HOST || '127.0.0.1';
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -41,6 +42,14 @@ app.use(express.static('public', {
 }));
 
 const db = new sqlite3.Database('./chess_database.db');
+// Improve concurrency characteristics
+try {
+  db.configure && db.configure('busyTimeout', 10000);
+} catch (_) {}
+db.serialize(() => {
+  db.run('PRAGMA journal_mode = WAL');
+  db.run('PRAGMA synchronous = NORMAL');
+});
 
 db.serialize(() => {
   db.run(`
@@ -103,13 +112,41 @@ db.serialize(() => {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_game_move ON positions(game_id, move_number);
   `);
+
+  // Piece locations table for optimized pattern search
+  db.run(`
+    CREATE TABLE IF NOT EXISTS piece_locations (
+      position_id INTEGER,
+      square INTEGER,      -- 0-63 (a1=0, h8=63)
+      piece CHAR(1),       -- P,N,B,R,Q,K,p,n,b,r,q,k
+      FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Critical indexes for fast pattern searches
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_square_piece ON piece_locations(square, piece);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_piece_square ON piece_locations(piece, square);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_piece_position ON piece_locations(position_id);
+  `);
 });
 
 function indexGamePositions(gameId, moves) {
+  const { extractPieceLocations } = require('./src/positionIndex');
   const positions = extractAllPositions(moves);
+  
   const posStmt = db.prepare(`
     INSERT INTO positions (game_id, move_number, fen, fen_position, zobrist_hash, material_signature, move)
     VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  
+  const pieceStmt = db.prepare(`
+    INSERT INTO piece_locations (position_id, square, piece)
+    VALUES (?, ?, ?)
   `);
   
   positions.forEach(pos => {
@@ -117,7 +154,8 @@ function indexGamePositions(gameId, moves) {
     const zobristHash = computeZobristHash(pos.fen);
     const materialSig = getMaterialSignature(pos.fen);
     
-    posStmt.run(
+    // Insert position record
+    const result = posStmt.run(
       gameId,
       pos.moveNumber,
       pos.fen,
@@ -126,9 +164,18 @@ function indexGamePositions(gameId, moves) {
       materialSig,
       pos.move
     );
+    
+    const positionId = result.lastID;
+    
+    // Extract and index piece locations for pattern search
+    const pieces = extractPieceLocations(fenPosition);
+    pieces.forEach(({square, piece}) => {
+      pieceStmt.run(positionId, square, piece);
+    });
   });
   
   posStmt.finalize();
+  pieceStmt.finalize();
 }
 
 app.post('/api/games/import', (req, res) => {
@@ -410,99 +457,75 @@ app.post('/api/positions/search/stream', (req, res) => {
   
   try {
     if (searchType === 'pattern') {
-      // For pattern search, we need to stream results with progress
-      const { searchPositionPattern } = require('./src/positionIndex');
-      const patternMatcher = searchPositionPattern(fen, 'pattern');
+      // Use optimized pattern search with streaming progress
+      const { buildOptimizedPatternQuery } = require('./src/positionIndex');
+      const queryResult = buildOptimizedPatternQuery(fen, pageSize, (page - 1) * pageSize);
       
-      db.all(`
-        SELECT DISTINCT g.*, p.move_number, p.move, p.fen_position
-        FROM positions p
-        JOIN games g ON p.game_id = g.id
-        ORDER BY g.id DESC, p.move_number
-      `, [], (err, rows) => {
+      sendProgress({ 
+        type: 'progress', 
+        message: 'Executing optimized pattern search...',
+        progress: 25 
+      });
+      
+      // Get count first
+      db.get(queryResult.countQuery, queryResult.countParams, (err, countResult) => {
         if (err) {
           return sendError(err.message);
         }
         
+        const totalGames = countResult.total;
+        
         sendProgress({ 
           type: 'progress', 
-          message: `Starting pattern search through ${rows.length} positions...`,
-          progress: 0 
+          message: `Found ${totalGames} matching games, retrieving results...`,
+          progress: 50 
         });
         
-        const matchingResults = [];
-        const batchSize = 1000;
-        let processed = 0;
-        
-        const processBatch = (startIndex) => {
-          const endIndex = Math.min(startIndex + batchSize, rows.length);
-          
-          for (let i = startIndex; i < endIndex; i++) {
-            const row = rows[i];
-            const fullFen = row.fen_position + ' w - - 0 1';
-            
-            if (patternMatcher(fullFen)) {
-              matchingResults.push(row);
-            }
-            
-            processed++;
+        // Get results
+        db.all(queryResult.query, queryResult.params, (err, rows) => {
+          if (err) {
+            return sendError(err.message);
           }
           
-          const progress = Math.round((processed / rows.length) * 100);
-          sendProgress({
-            type: 'progress',
-            message: `Searched ${processed} of ${rows.length} positions...`,
-            progress: progress,
-            found: matchingResults.length
+          sendProgress({ 
+            type: 'progress', 
+            message: `Processing ${rows.length} game records...`,
+            progress: 75 
           });
           
-          if (endIndex < rows.length) {
-            // Continue with next batch after a small delay
-            setTimeout(() => processBatch(endIndex), 10);
-          } else {
-            // Processing complete
-            const offset = (parseInt(page) - 1) * parseInt(pageSize);
-            const limit = parseInt(pageSize);
-            const paginatedResults = matchingResults.slice(offset, offset + limit);
+          const gamesWithPositions = {};
+          rows.forEach(row => {
+            if (!gamesWithPositions[row.id]) {
+              gamesWithPositions[row.id] = {
+                ...row,
+                positions: []
+              };
+              // Clean up extra fields
+              delete gamesWithPositions[row.id].move_number;
+              delete gamesWithPositions[row.id].move;
+              delete gamesWithPositions[row.id].position_id;
+            }
             
-            // Group by games
-            const gamesWithPositions = {};
-            paginatedResults.forEach(row => {
-              if (!gamesWithPositions[row.id]) {
-                gamesWithPositions[row.id] = {
-                  ...row,
-                  positions: []
-                };
-                delete gamesWithPositions[row.id].move_number;
-                delete gamesWithPositions[row.id].move;
-                delete gamesWithPositions[row.id].fen_position;
-              }
-              gamesWithPositions[row.id].positions.push({
-                moveNumber: row.move_number,
-                move: row.move
-              });
+            gamesWithPositions[row.id].positions.push({
+              moveNumber: row.move_number,
+              move: row.move
             });
-            
-            const totalGames = Math.floor(matchingResults.length / 10); // Estimate
-            const totalPages = Math.ceil(totalGames / limit);
-            
-            sendComplete({
-              success: true,
-              games: Object.values(gamesWithPositions),
-              searchType,
-              pagination: {
-                page: parseInt(page),
-                pageSize: limit,
-                totalGames,
-                totalPages,
-                hasNext: parseInt(page) < totalPages,
-                hasPrev: parseInt(page) > 1
-              }
-            });
-          }
-        };
-        
-        processBatch(0);
+          });
+          
+          sendComplete({
+            success: true,
+            games: Object.values(gamesWithPositions),
+            searchType,
+            pagination: {
+              page: parseInt(page),
+              pageSize: parseInt(pageSize),
+              totalGames: totalGames,
+              totalPages: Math.ceil(totalGames / pageSize),
+              hasNext: page * pageSize < totalGames,
+              hasPrev: page > 1
+            }
+          });
+        });
       });
     } else {
       // For other search types, use the regular search logic but still send progress
@@ -544,46 +567,63 @@ app.post('/api/positions/search', (req, res) => {
     
     if (searchType === 'exact') {
       query = `
-        SELECT DISTINCT g.*, p.move_number, p.move
+        SELECT g.*, p.move_number, p.move
         FROM positions p
         JOIN games g ON p.game_id = g.id
         WHERE p.fen_position = ?
+          AND g.id IN (
+            SELECT DISTINCT g2.id
+            FROM positions p2
+            JOIN games g2 ON p2.game_id = g2.id
+            WHERE p2.fen_position = ?
+            ORDER BY g2.id DESC
+            LIMIT ${limit} OFFSET ${offset}
+          )
         ORDER BY g.id DESC, p.move_number
-        LIMIT ${limit} OFFSET ${offset}
       `;
-      params = [fenPosition];
+      params = [fenPosition, fenPosition];
     } else if (searchType === 'material') {
       const materialSig = getMaterialSignature(fen);
       query = `
-        SELECT DISTINCT g.*, p.move_number, p.move
+        SELECT g.*, p.move_number, p.move
         FROM positions p
         JOIN games g ON p.game_id = g.id
         WHERE p.material_signature = ?
+          AND g.id IN (
+            SELECT DISTINCT g2.id
+            FROM positions p2
+            JOIN games g2 ON p2.game_id = g2.id
+            WHERE p2.material_signature = ?
+            ORDER BY g2.id DESC
+            LIMIT ${limit} OFFSET ${offset}
+          )
         ORDER BY g.id DESC, p.move_number
-        LIMIT ${limit} OFFSET ${offset}
       `;
-      params = [materialSig];
+      params = [materialSig, materialSig];
     } else if (searchType === 'zobrist') {
       const zobristHash = computeZobristHash(fen);
       query = `
-        SELECT DISTINCT g.*, p.move_number, p.move
+        SELECT g.*, p.move_number, p.move
         FROM positions p
         JOIN games g ON p.game_id = g.id
         WHERE p.zobrist_hash = ?
+          AND g.id IN (
+            SELECT DISTINCT g2.id
+            FROM positions p2
+            JOIN games g2 ON p2.game_id = g2.id
+            WHERE p2.zobrist_hash = ?
+            ORDER BY g2.id DESC
+            LIMIT ${limit} OFFSET ${offset}
+          )
         ORDER BY g.id DESC, p.move_number
-        LIMIT ${limit} OFFSET ${offset}
       `;
-      params = [zobristHash];
+      params = [zobristHash, zobristHash];
     } else if (searchType === 'pattern') {
-      // For pattern search, we need to query all positions and filter in memory
-      // This is less efficient but allows for complex pattern matching
-      query = `
-        SELECT DISTINCT g.*, p.move_number, p.move, p.fen_position
-        FROM positions p
-        JOIN games g ON p.game_id = g.id
-        ORDER BY g.id DESC, p.move_number
-      `;
-      params = [];
+      // Use optimized pattern search with piece location indexes
+      const { buildOptimizedPatternQuery } = require('./src/positionIndex');
+      const queryResult = buildOptimizedPatternQuery(fen, limit, offset);
+      query = queryResult.query;
+      params = queryResult.params;
     } else {
       return res.status(400).json({ 
         success: false, 
@@ -591,9 +631,41 @@ app.post('/api/positions/search', (req, res) => {
       });
     }
     
-    const countQuery = query.replace('SELECT DISTINCT g.*, p.move_number, p.move', 'SELECT COUNT(DISTINCT g.id) as total')
-                            .replace(/LIMIT.*$/m, '');
-    const countParams = params;
+    let countQuery, countParams;
+    
+    if (searchType === 'pattern') {
+      const { buildOptimizedPatternQuery } = require('./src/positionIndex');
+      const queryResult = buildOptimizedPatternQuery(fen, limit, offset);
+      countQuery = queryResult.countQuery;
+      countParams = queryResult.countParams;
+    } else {
+      // Count distinct games matching the filter
+      if (searchType === 'exact') {
+        countQuery = `
+          SELECT COUNT(DISTINCT g.id) as total
+          FROM positions p
+          JOIN games g ON p.game_id = g.id
+          WHERE p.fen_position = ?
+        `;
+        countParams = [fenPosition];
+      } else if (searchType === 'material') {
+        countQuery = `
+          SELECT COUNT(DISTINCT g.id) as total
+          FROM positions p
+          JOIN games g ON p.game_id = g.id
+          WHERE p.material_signature = ?
+        `;
+        countParams = [getMaterialSignature(fen)];
+      } else if (searchType === 'zobrist') {
+        countQuery = `
+          SELECT COUNT(DISTINCT g.id) as total
+          FROM positions p
+          JOIN games g ON p.game_id = g.id
+          WHERE p.zobrist_hash = ?
+        `;
+        countParams = [computeZobristHash(fen)];
+      }
+    }
     
     db.get(countQuery, countParams, (err, countResult) => {
       if (err) {
@@ -608,26 +680,9 @@ app.post('/api/positions/search', (req, res) => {
         if (err) {
           res.status(500).json({ success: false, error: err.message });
         } else {
-          let filteredRows = rows;
-          
-          // Apply pattern filtering if needed
-          if (searchType === 'pattern') {
-            const { searchPositionPattern } = require('./src/positionIndex');
-            const patternMatcher = searchPositionPattern(fen, 'pattern');
-            
-            filteredRows = rows.filter(row => {
-              const fullFen = row.fen_position + ' w - - 0 1';
-              return patternMatcher(fullFen);
-            });
-            
-            // Apply pagination to filtered results
-            const startIndex = offset;
-            const endIndex = offset + limit;
-            filteredRows = filteredRows.slice(startIndex, endIndex);
-          }
-          
+          // No need for JavaScript filtering - results are already filtered by optimized SQL
           const gamesWithPositions = {};
-          filteredRows.forEach(row => {
+          rows.forEach(row => {
             if (!gamesWithPositions[row.id]) {
               gamesWithPositions[row.id] = {
                 ...row,
@@ -643,17 +698,8 @@ app.post('/api/positions/search', (req, res) => {
             });
           });
           
-          // For pattern search, calculate the actual total from filtered results
-          const actualTotalGames = searchType === 'pattern' ? 
-            Math.floor(rows.filter(row => {
-              const { searchPositionPattern } = require('./src/positionIndex');
-              const patternMatcher = searchPositionPattern(fen, 'pattern');
-              const fullFen = row.fen_position + ' w - - 0 1';
-              return patternMatcher(fullFen);
-            }).length / 10) : // Rough estimate since positions per game varies
-            totalGames;
-          
-          const actualTotalPages = Math.ceil(actualTotalGames / limit);
+          // Use the count from optimized query
+          const actualTotalPages = Math.ceil(totalGames / limit);
           
           res.json({ 
             success: true, 
@@ -662,7 +708,7 @@ app.post('/api/positions/search', (req, res) => {
             pagination: {
               page: parseInt(page),
               pageSize: limit,
-              totalGames: actualTotalGames,
+              totalGames: totalGames,
               totalPages: actualTotalPages,
               hasNext: parseInt(page) < actualTotalPages,
               hasPrev: parseInt(page) > 1
@@ -781,7 +827,7 @@ app.get('/api/stats/detailed', (req, res) => {
 });
 
 app.post('/api/index/rebuild', (req, res) => {
-  const { extractAllPositions, computeZobristHash, getMaterialSignature } = require('./src/positionIndex');
+  const { extractAllPositions, computeZobristHash, getMaterialSignature, extractPieceLocations } = require('./src/positionIndex');
   
   // First clear existing positions
   db.run('DELETE FROM positions', (err) => {
@@ -812,13 +858,17 @@ app.post('/api/index/rebuild', (req, res) => {
             INSERT INTO positions (game_id, move_number, fen, fen_position, zobrist_hash, material_signature, move)
             VALUES (?, ?, ?, ?, ?, ?, ?)
           `);
+          const pieceStmt = db.prepare(`
+            INSERT INTO piece_locations (position_id, square, piece)
+            VALUES (?, ?, ?)
+          `);
           
           positions.forEach(pos => {
             const fenPosition = pos.fen.split(' ')[0];
             const zobristHash = computeZobristHash(pos.fen);
             const materialSig = getMaterialSignature(pos.fen);
             
-            stmt.run(
+            const result = stmt.run(
               game.id,
               pos.moveNumber,
               pos.fen,
@@ -827,9 +877,15 @@ app.post('/api/index/rebuild', (req, res) => {
               materialSig,
               pos.move
             );
+            const positionId = result.lastID;
+            const pieces = extractPieceLocations(fenPosition);
+            pieces.forEach(({square, piece}) => {
+              pieceStmt.run(positionId, square, piece);
+            });
           });
           
           stmt.finalize();
+          pieceStmt.finalize();
           processed++;
         } catch (error) {
           errors++;
@@ -854,7 +910,7 @@ app.post('/api/index/clear', (req, res) => {
 });
 
 app.post('/api/index/fix', (req, res) => {
-  const { extractAllPositions, computeZobristHash, getMaterialSignature } = require('./src/positionIndex');
+  const { extractAllPositions, computeZobristHash, getMaterialSignature, extractPieceLocations } = require('./src/positionIndex');
   
   db.all(`
     SELECT g.id, g.moves 
@@ -882,13 +938,17 @@ app.post('/api/index/fix', (req, res) => {
           INSERT INTO positions (game_id, move_number, fen, fen_position, zobrist_hash, material_signature, move)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
+        const pieceStmt = db.prepare(`
+          INSERT INTO piece_locations (position_id, square, piece)
+          VALUES (?, ?, ?)
+        `);
         
         positions.forEach(pos => {
           const fenPosition = pos.fen.split(' ')[0];
           const zobristHash = computeZobristHash(pos.fen);
           const materialSig = getMaterialSignature(pos.fen);
           
-          stmt.run(
+          const result = stmt.run(
             game.id,
             pos.moveNumber,
             pos.fen,
@@ -897,9 +957,15 @@ app.post('/api/index/fix', (req, res) => {
             materialSig,
             pos.move
           );
+          const positionId = result.lastID;
+          const pieces = extractPieceLocations(fenPosition);
+          pieces.forEach(({square, piece}) => {
+            pieceStmt.run(positionId, square, piece);
+          });
         });
         
         stmt.finalize();
+        pieceStmt.finalize();
         fixed++;
       } catch (error) {
         console.error(`Error indexing game ${game.id}:`, error);
@@ -933,6 +999,188 @@ app.post('/api/index/optimize', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Chess Database Server running on http://localhost:${PORT}`);
+// Rebuild piece_locations using the server's DB connection to avoid external locks
+app.post('/api/index/pieces/rebuild', async (req, res) => {
+  const { extractPieceLocations } = require('./src/positionIndex');
+  const BATCH = 2000;
+
+  const run = (sql, params = []) => new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) { err ? reject(err) : resolve(this); });
+  });
+  const get = (sql, params = []) => new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
+  });
+  const all = (sql, params = []) => new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
+  });
+
+  try {
+    const totalRow = await get('SELECT COUNT(*) as count FROM positions');
+    const total = totalRow.count;
+    if (!total) {
+      return res.json({ success: true, message: 'No positions found', total: 0 });
+    }
+
+    await run('DELETE FROM piece_locations');
+
+    let processed = 0;
+    for (let offset = 0; offset < total; offset += BATCH) {
+      const batch = await all('SELECT id, fen_position FROM positions ORDER BY id LIMIT ? OFFSET ?', [BATCH, offset]);
+      await new Promise((resolve, reject) => {
+        const stmt = db.prepare('INSERT INTO piece_locations (position_id, square, piece) VALUES (?, ?, ?)');
+        db.run('BEGIN TRANSACTION');
+        try {
+          for (const row of batch) {
+            const pieces = extractPieceLocations(row.fen_position);
+            for (const { square, piece } of pieces) {
+              stmt.run(row.id, square, piece);
+            }
+          }
+          db.run('COMMIT', (err) => {
+            stmt.finalize();
+            err ? reject(err) : resolve();
+          });
+        } catch (e) {
+          db.run('ROLLBACK', () => {
+            try { stmt.finalize(); } catch (_) {}
+            reject(e);
+          });
+        }
+      });
+      processed += batch.length;
+    }
+
+    const countRow = await get('SELECT COUNT(*) as count FROM piece_locations');
+    res.json({ success: true, message: 'piece_locations rebuilt', positionsProcessed: processed, pieceLocations: countRow.count });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Quick stats for piece_locations coverage and common checks
+app.get('/api/index/pieces/stats', async (req, res) => {
+  const runGet = (sql, params = []) => new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
+  });
+
+  try {
+    const totalPieces = await runGet('SELECT COUNT(*) as count FROM piece_locations');
+    const uniquePositions = await runGet('SELECT COUNT(DISTINCT position_id) as count FROM piece_locations');
+    const totalPositions = await runGet('SELECT COUNT(*) as count FROM positions');
+
+    const a1R = await runGet('SELECT COUNT(DISTINCT position_id) as count FROM piece_locations WHERE square = ? AND piece = ?', [0, 'R']);
+    const b1R = await runGet('SELECT COUNT(DISTINCT position_id) as count FROM piece_locations WHERE square = ? AND piece = ?', [1, 'R']);
+    const bothA1B1R = await runGet(
+      `SELECT COUNT(DISTINCT pl1.position_id) as count
+       FROM piece_locations pl1
+       JOIN piece_locations pl2 ON pl1.position_id = pl2.position_id
+       WHERE pl1.square = ? AND pl1.piece = ?
+         AND pl2.square = ? AND pl2.piece = ?`, [0, 'R', 1, 'R']
+    );
+
+    const a8r = await runGet('SELECT COUNT(DISTINCT position_id) as count FROM piece_locations WHERE square = ? AND piece = ?', [56, 'r']);
+    const h8r = await runGet('SELECT COUNT(DISTINCT position_id) as count FROM piece_locations WHERE square = ? AND piece = ?', [63, 'r']);
+    const bothA8H8r = await runGet(
+      `SELECT COUNT(DISTINCT pl1.position_id) as count
+       FROM piece_locations pl1
+       JOIN piece_locations pl2 ON pl1.position_id = pl2.position_id
+       WHERE pl1.square = ? AND pl1.piece = ?
+         AND pl2.square = ? AND pl2.piece = ?`, [56, 'r', 63, 'r']
+    );
+
+    const coverage = totalPositions.count > 0
+      ? Number(((uniquePositions.count / totalPositions.count) * 100).toFixed(2))
+      : 0;
+
+    res.json({
+      success: true,
+      totals: {
+        pieceLocations: totalPieces.count,
+        uniquePositions: uniquePositions.count,
+        positionsTable: totalPositions.count,
+        coveragePercent: coverage
+      },
+      quickChecks: {
+        whiteRookA1: a1R.count,
+        whiteRookB1: b1R.count,
+        whiteRooksA1B1: bothA1B1R.count,
+        blackRookA8: a8r.count,
+        blackRookH8: h8r.count,
+        blackRooksA8H8: bothA8H8r.count
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Parametric check: AND-match of specific (square, piece) constraints
+// Example: /api/index/pieces/check?constraints=a1:R,b1:R (algebraic) or /api/index/pieces/check?constraints=0:R,1:R (0-63 indices)
+app.get('/api/index/pieces/check', async (req, res) => {
+  function sqToIndex(s) {
+    if (s == null) return null;
+    if (/^\d+$/.test(s)) {
+      const n = parseInt(s, 10);
+      return n >= 0 && n <= 63 ? n : null;
+    }
+    const m = /^([a-h])([1-8])$/i.exec(String(s));
+    if (!m) return null;
+    const file = m[1].toLowerCase().charCodeAt(0) - 97; // a=0
+    const rank = parseInt(m[2], 10);
+    return (rank - 1) * 8 + file;
+  }
+
+  try {
+    const raw = (req.query.constraints || '').toString().trim();
+    if (!raw) return res.status(400).json({ success: false, error: 'constraints param is required (e.g., a1:R,b1:R)' });
+
+    const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
+    const constraints = [];
+    for (const p of parts) {
+      const [sqStr, piece] = p.split(':');
+      const idx = sqToIndex(sqStr);
+      if (idx == null || !piece || piece.length !== 1) {
+        return res.status(400).json({ success: false, error: `Invalid constraint: ${p}` });
+      }
+      constraints.push({ square: idx, piece });
+    }
+    if (constraints.length === 0) return res.status(400).json({ success: false, error: 'No valid constraints provided' });
+
+    // Build intersect-style dynamic query
+    const baseAlias = 'pl0';
+    let sql = `SELECT COUNT(DISTINCT ${baseAlias}.position_id) AS positions,
+                      COUNT(DISTINCT pos.game_id) AS games
+               FROM piece_locations ${baseAlias}
+               JOIN positions pos ON pos.id = ${baseAlias}.position_id`;
+    const params = [];
+
+    // WHERE for first constraint
+    sql += ` WHERE ${baseAlias}.square = ? AND ${baseAlias}.piece = ?`;
+    params.push(constraints[0].square, constraints[0].piece);
+
+    // Join for remaining constraints
+    for (let i = 1; i < constraints.length; i++) {
+      const alias = `pl${i}`;
+      sql += `
+        JOIN piece_locations ${alias}
+          ON ${alias}.position_id = ${baseAlias}.position_id
+         AND ${alias}.square = ? AND ${alias}.piece = ?`;
+      params.push(constraints[i].square, constraints[i].piece);
+    }
+
+    // Execute
+    await new Promise((resolve, reject) => {
+      db.get(sql, params, (err, row) => {
+        if (err) return reject(err);
+        res.json({ success: true, constraints, counts: row });
+        resolve();
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.listen(PORT, HOST, () => {
+  console.log(`Chess Database Server running on http://${HOST}:${PORT}`);
 });

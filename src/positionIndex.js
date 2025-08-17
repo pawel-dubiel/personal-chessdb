@@ -286,6 +286,145 @@ function createPatternFromPieces(pieces) {
   return fenRanks.join('/') + ' w - - 0 1';
 }
 
+function extractPieceLocations(fen) {
+  const ranks = fen.split(' ')[0].split('/');
+  const pieces = [];
+  
+  for (let rank = 0; rank < 8; rank++) {
+    let file = 0;
+    for (let char of ranks[rank]) {
+      if (char >= '1' && char <= '8') {
+        file += parseInt(char);
+      } else {
+        // Calculate square number: rank 0 (8th rank) = squares 56-63, rank 7 (1st rank) = squares 0-7
+        const square = (7 - rank) * 8 + file;
+        pieces.push({
+          square: square,
+          piece: char
+        });
+        file++;
+      }
+    }
+  }
+  
+  return pieces;
+}
+
+function parsePatternRequirements(targetFen) {
+  const targetBoard = targetFen.split(' ')[0];
+  const targetRanks = targetBoard.split('/');
+  const requirements = [];
+  
+  for (let rank = 0; rank < 8; rank++) {
+    let file = 0;
+    let i = 0;
+    
+    while (i < targetRanks[rank].length) {
+      const char = targetRanks[rank][i];
+      
+      if (char >= '1' && char <= '8') {
+        // Empty squares
+        file += parseInt(char);
+        i++;
+      } else if (char === '[') {
+        // Multi-piece specification [P|N|B]
+        const endBracket = targetRanks[rank].indexOf(']', i);
+        if (endBracket !== -1) {
+          const multiPieceStr = targetRanks[rank].substring(i + 1, endBracket);
+          const allowedPieces = multiPieceStr.split('|');
+          const square = (7 - rank) * 8 + file;
+          requirements.push({
+            square: square,
+            allowedPieces: allowedPieces
+          });
+          file++;
+          i = endBracket + 1;
+        } else {
+          i++;
+        }
+      } else {
+        // Single piece
+        const square = (7 - rank) * 8 + file;
+        requirements.push({
+          square: square,
+          allowedPieces: [char]
+        });
+        file++;
+        i++;
+      }
+    }
+  }
+  
+  return requirements;
+}
+
+function buildOptimizedPatternQuery(fen, limit = 50, offset = 0) {
+  const requirements = parsePatternRequirements(fen);
+  
+  if (requirements.length === 0) {
+    return { 
+      query: 'SELECT 1 WHERE 0', 
+      params: [],
+      countQuery: 'SELECT 0 as total',
+      countParams: []
+    };
+  }
+  
+  // Build subqueries for each square requirement
+  const subqueries = requirements.map(({square, allowedPieces}) => {
+    const placeholders = allowedPieces.map(() => '?').join(',');
+    return {
+      sql: `SELECT position_id FROM piece_locations WHERE square = ? AND piece IN (${placeholders})`,
+      params: [square, ...allowedPieces]
+    };
+  });
+  
+  // Start with first requirement
+  let intersectQuery = `(${subqueries[0].sql})`;
+  let params = [...subqueries[0].params];
+  
+  // Intersect with remaining requirements
+  for (let i = 1; i < subqueries.length; i++) {
+    intersectQuery = `
+      SELECT p1.position_id FROM ${intersectQuery} p1
+      INNER JOIN (${subqueries[i].sql}) p${i+1} 
+      ON p1.position_id = p${i+1}.position_id
+    `;
+    params.push(...subqueries[i].params);
+  }
+  
+  // Paginate by distinct games using nested subqueries (compatible with older SQLite builds)
+  const finalQuery = `
+    SELECT g.*, p.move_number, p.move, p.id as position_id
+    FROM positions p
+    JOIN games g ON p.game_id = g.id
+    WHERE p.id IN (${intersectQuery})
+      AND g.id IN (
+        SELECT DISTINCT p2.game_id
+        FROM positions p2
+        WHERE p2.id IN (${intersectQuery})
+        ORDER BY p2.game_id DESC
+        LIMIT ${limit} OFFSET ${offset}
+      )
+    ORDER BY g.id DESC, p.move_number
+  `;
+  
+  // Count query for pagination (count distinct game_ids without joining games)
+  const countQuery = `
+    SELECT COUNT(DISTINCT p.game_id) as total
+    FROM positions p
+    WHERE p.id IN (${intersectQuery})
+  `;
+  
+  return { 
+    query: finalQuery, 
+    // params are used twice: outer match and inner paging subquery
+    params: [...params, ...params],
+    countQuery: countQuery,
+    countParams: [...params]
+  };
+}
+
 module.exports = {
   computeZobristHash,
   getMaterialSignature,
@@ -293,5 +432,8 @@ module.exports = {
   extractAllPositions,
   searchPositionPattern,
   extractPatternFromPosition,
-  createPatternFromPieces
+  createPatternFromPieces,
+  extractPieceLocations,
+  parsePatternRequirements,
+  buildOptimizedPatternQuery
 };

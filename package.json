@@ -29,9 +29,14 @@
     "dev": "nodemon server.js",
     "screenshots": "node scripts/take-screenshots.js",
     "demo": "node scripts/demo.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "test:unit": "node tests/test-multipiece-logic.js",
-    "test:api": "bash tests/api-test-commands.sh"
+    "test": "npm run test:unit && npm run test:multipiece && npm run test:pagination && npm run test:rooks",
+    "test:unit": "node tests/test-optimized-pattern-search.js",
+    "test:multipiece": "node tests/test-multipiece-logic.js",
+    "test:pagination": "node tests/test-pagination-pattern.js",
+    "test:rooks": "node tests/test-pattern-rooks-initial.js",
+    "test:api": "bash tests/api-test-commands.sh",
+    "test:performance": "node tests/test-performance-benchmark.js",
+    "build-index": "node scripts/build-piece-index.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.10",

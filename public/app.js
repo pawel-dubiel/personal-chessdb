@@ -815,14 +815,39 @@ async function deleteGame(gameId) {
     }
 }
 
-function showMessage(element, message, type) {
-    element.textContent = message;
-    element.className = `result-message ${type}`;
-    element.style.display = 'block';
+function showMessage(elementOrMessage, messageOrType, type) {
+    // Handle both calling patterns:
+    // showMessage(element, message, type) - for import results
+    // showMessage(message, type) - for position search messages
     
-    setTimeout(() => {
-        element.style.display = 'none';
-    }, 5000);
+    if (arguments.length === 3) {
+        // Old pattern: showMessage(element, message, type)
+        const element = elementOrMessage;
+        const message = messageOrType;
+        element.textContent = message;
+        element.className = `result-message ${type}`;
+        element.style.display = 'block';
+        
+        setTimeout(() => {
+            element.style.display = 'none';
+        }, 5000);
+    } else {
+        // New pattern: showMessage(message, type) - show in position search result area
+        const message = elementOrMessage;
+        const messageType = messageOrType;
+        const resultDiv = document.getElementById('positionSearchResult');
+        if (resultDiv) {
+            resultDiv.textContent = message;
+            resultDiv.className = `result-message ${messageType}`;
+            resultDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                resultDiv.style.display = 'none';
+            }, 5000);
+        } else {
+            console.log(`${messageType.toUpperCase()}: ${message}`);
+        }
+    }
 }
 
 function setupTabs() {
@@ -985,6 +1010,9 @@ function setupPositionSearch() {
         const position = positionBoard.position();
         let fenWithMultiPieces = '';
         
+        // Debug: log the position object to see what format it's in
+        console.log('Position object:', position);
+        
         // Convert position to FEN, but handle multi-piece squares
         for (let rank = 8; rank >= 1; rank--) {
             let rankString = '';
@@ -1002,11 +1030,33 @@ function setupPositionSearch() {
                     }
                     rankString += `[${multiPieceSquares[square].join('|')}]`;
                 } else if (position[square]) {
+                    // Chessboard.js returns pieces as 'wP', 'bN', etc.
+                    // We need to extract just the piece character
+                    const pieceData = position[square];
+                    let piece;
+                    
+                    if (pieceData.length === 2 && /^[wb][PNBRQK]$/i.test(pieceData)) {
+                        // Format: color + piece (e.g., 'wP', 'bN')
+                        const color = pieceData[0];
+                        const pieceType = pieceData[1];
+                        // Convert to standard FEN notation (uppercase = white, lowercase = black)
+                        piece = color === 'w' ? pieceType.toUpperCase() : pieceType.toLowerCase();
+                    } else if (/^[pnbrqkPNBRQK]$/.test(pieceData)) {
+                        // Already in correct format
+                        piece = pieceData;
+                    } else {
+                        // Invalid format
+                        console.warn(`Invalid piece format '${pieceData}' at square ${square}, treating as empty`);
+                        emptyCount++;
+                        continue;
+                    }
+                    
+                    // Add the piece to the FEN
                     if (emptyCount > 0) {
                         rankString += emptyCount;
                         emptyCount = 0;
                     }
-                    rankString += position[square];
+                    rankString += piece;
                 } else {
                     emptyCount++;
                 }
@@ -1081,9 +1131,30 @@ function setupPositionSearch() {
             fen = positionBoard._multiPieceFen;
         }
         
-        if (!fen || fen === ' w - - 0 1') {
+        // Debug logging
+        console.log('Pattern search debug:');
+        console.log('  Original FEN:', document.getElementById('fenInput').value);
+        console.log('  Multi-piece FEN:', positionBoard._multiPieceFen);
+        console.log('  Using FEN:', fen);
+        console.log('  Search type:', searchType);
+        
+        // Check for valid FEN - allow pattern searches with sparse positions
+        if (!fen || fen.trim() === '' || fen === ' w - - 0 1' || fen === '8/8/8/8/8/8/8/8 w - - 0 1') {
             showMessage('Please set up a position on the board', 'error');
             return;
+        }
+        
+        // For pattern search, ensure we have at least one piece
+        if (searchType === 'pattern') {
+            const boardPart = fen.split(' ')[0];
+            const hasPieces = /[a-zA-Z]/.test(boardPart);
+            console.log('  Board part:', boardPart);
+            console.log('  Has pieces test:', hasPieces);
+            console.log('  Board part characters:', Array.from(boardPart).map(c => `${c}(${c.charCodeAt(0)})`));
+            if (!hasPieces) {
+                showMessage('Please place at least one piece on the board for pattern search', 'error');
+                return;
+            }
         }
         
         // Show progress UI
