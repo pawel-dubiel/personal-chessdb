@@ -1,0 +1,74 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+chessdb
+!chessdb/
+cmd/chessdb/chessdb
+
+# Test and demo binary
+/chessdb
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Test data files
+test_*.pgn
+demo*.pgn
+sample*.pgn
+large*.pgn
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Test coverage
+*.out
+
+# Dependency directories
+vendor/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+*.log.*
+
+# Temporary files
+*.tmp
+*.temp
+
+# Build artifacts
+/dist/
+/build/
+
+# Chess database specific
+uploads/
+data/
+*.fen
+*.pgn.tmp
+
+# Configuration files with secrets
+config.local.*
+.env.local
+.env.*.local

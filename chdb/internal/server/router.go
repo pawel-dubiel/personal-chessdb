@@ -8,6 +8,7 @@ import (
 func SetupRouter(db *database.DB) *gin.Engine {
 	router := gin.Default()
 	handler := NewHandler(db)
+	batchHandler := NewBatchHandler(db)
 
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
@@ -21,6 +22,10 @@ func SetupRouter(db *database.DB) *gin.Engine {
 		{
 			games.POST("/import", handler.ImportGames)
 			games.POST("/import/file", handler.ImportFile)
+			games.POST("/import/large", batchHandler.ImportLargeFile)
+			games.POST("/import/stream", batchHandler.StreamImport)
+			games.GET("/import/progress/:jobId", batchHandler.GetImportProgress)
+			games.DELETE("/import/cancel/:jobId", batchHandler.CancelImport)
 			games.GET("/search", handler.SearchGames)
 			games.POST("/search/pattern", handler.SearchByPattern)
 			games.GET("/:id", handler.GetGame)

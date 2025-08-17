@@ -9,7 +9,10 @@ A Go-based chess database optimized for storing and searching millions of chess 
 - **Pattern Matching**: Advanced pattern search with OR conditions for pieces
 - **Full-Text Search**: Search by player names, events, openings
 - **REST API**: Complete HTTP API for all operations
-- **Batch Import**: Import multiple games efficiently
+- **Concurrent Processing**: Go channels for parallel game parsing and importing
+- **Batch Import**: Import multiple games efficiently with real-time progress
+- **Streaming Import**: Server-Sent Events for live import progress updates
+- **Async Operations**: Background job processing with cancellation support
 - **Index Optimization**: Multiple specialized indexes for different query types
 
 ## Installation
@@ -40,6 +43,16 @@ curl -X POST http://localhost:8080/api/v1/games/import \
 # Import PGN file
 curl -X POST http://localhost:8080/api/v1/games/import/file \
   -F "file=@games.pgn"
+
+# Import large file with progress tracking (returns job ID)
+curl -X POST http://localhost:8080/api/v1/games/import/large \
+  -F "file=@large_database.pgn"
+
+# Check import progress
+curl http://localhost:8080/api/v1/games/import/progress/JOB_ID
+
+# Cancel import job
+curl -X DELETE http://localhost:8080/api/v1/games/import/cancel/JOB_ID
 ```
 
 ### Search Games
@@ -134,13 +147,38 @@ The database uses multiple tables with optimized indexes:
 - `piece_patterns` - Pattern hashing for complex pattern matching
 - `games_fts` - Full-text search virtual table
 
+## Channel-Based Architecture
+
+The system uses Go channels extensively for concurrent processing:
+
+### Concurrent Game Parsing
+- **Worker Pool**: Configurable number of goroutines parse PGN games in parallel
+- **Job Channel**: Distributes parsing work across workers
+- **Result Channel**: Collects parsed games with error handling
+- **Streaming**: Process games as they're parsed, not waiting for entire batch
+
+### Batch Import Pipeline
+- **Game Channel**: Streams parsed games to import workers
+- **Progress Channel**: Real-time updates on import progress
+- **Batch Channel**: Groups games for efficient database transactions
+- **Context Cancellation**: Graceful shutdown and job cancellation
+
+### Key Benefits
+- **Concurrency**: Parse and import games simultaneously
+- **Memory Efficient**: Stream processing prevents memory overload
+- **Progress Tracking**: Real-time feedback on long-running operations
+- **Cancellable**: Stop operations mid-process without corruption
+- **Backpressure**: Automatic flow control prevents overwhelming the database
+
 ## Performance
 
 - Handles millions of games efficiently
 - Sub-second searches on indexed fields
+- Concurrent parsing with configurable worker pools
 - Batch import with transaction optimization
 - WAL mode for concurrent reads
 - Position hashing for fast lookups
+- Channel-based streaming for memory efficiency
 
 ## Query Examples
 
